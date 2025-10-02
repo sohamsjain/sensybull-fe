@@ -1,5 +1,28 @@
-import { Stack } from "expo-router";
+// app/_layout.tsx
+import { Stack } from 'expo-router';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { AuthProvider } from './contexts/AuthContext';
 
 export default function RootLayout() {
-  return <Stack />;
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <AuthProvider>
+          <Stack>
+            <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="index" options={{ headerShown: false }} />
+            <Stack.Screen 
+              name="article/[id]" 
+              options={{ 
+                title: 'Article',
+                headerBackTitle: 'Back',
+              }} 
+            />
+          </Stack>
+        </AuthProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
+  );
 }
