@@ -113,6 +113,7 @@ class ApiService {
     ticker?: string;
     search?: string;
     provider?: string;
+    topic?: string;
   } = {}) {
     const queryParams = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {
@@ -145,10 +146,154 @@ class ApiService {
     return this.handleResponse(response);
   }
 
+  async getArticlesByTopic(topicName: string, page = 1, perPage = 20) {
+    const response = await fetch(
+      `${API_BASE_URL}/articles/topic/${topicName}?page=${page}&per_page=${perPage}`,
+      {
+        headers: await this.getHeaders(),
+      }
+    );
+    return this.handleResponse(response);
+  }
+
   // Tickers endpoints
   async searchTickers(query: string, page = 1, perPage = 10) {
     const response = await fetch(
       `${API_BASE_URL}/tickers?q=${encodeURIComponent(query)}&page=${page}&per_page=${perPage}`,
+      {
+        headers: await this.getHeaders(),
+      }
+    );
+    return this.handleResponse(response);
+  }
+
+  async getTicker(tickerSymbol: string) {
+    const response = await fetch(
+      `${API_BASE_URL}/tickers/${tickerSymbol.toUpperCase()}`,
+      {
+        headers: await this.getHeaders(),
+      }
+    );
+    return this.handleResponse(response);
+  }
+
+  async followTicker(tickerSymbol: string) {
+    const response = await fetch(
+      `${API_BASE_URL}/tickers/${tickerSymbol.toUpperCase()}/follow`,
+      {
+        method: 'POST',
+        headers: await this.getHeaders(),
+      }
+    );
+    return this.handleResponse(response);
+  }
+
+  async unfollowTicker(tickerSymbol: string) {
+    const response = await fetch(
+      `${API_BASE_URL}/tickers/${tickerSymbol.toUpperCase()}/unfollow`,
+      {
+        method: 'DELETE',
+        headers: await this.getHeaders(),
+      }
+    );
+    return this.handleResponse(response);
+  }
+
+  async getFollowedTickers() {
+    const response = await fetch(
+      `${API_BASE_URL}/tickers/following`,
+      {
+        headers: await this.getHeaders(),
+      }
+    );
+    return this.handleResponse(response);
+  }
+
+  // Topics endpoints
+  async getAllTopics(params: {
+    q?: string;
+    page?: number;
+    per_page?: number;
+  } = {}) {
+    const queryParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined) {
+        queryParams.append(key, value.toString());
+      }
+    });
+    
+    const url = `${API_BASE_URL}/topics?${queryParams}`;
+    const response = await fetch(url, {
+      headers: await this.getHeaders(),
+    });
+    return this.handleResponse(response);
+  }
+
+  async getTopic(topicId: string) {
+    const response = await fetch(
+      `${API_BASE_URL}/topics/${topicId}`,
+      {
+        headers: await this.getHeaders(),
+      }
+    );
+    return this.handleResponse(response);
+  }
+
+  async getTopicByName(topicName: string) {
+    const response = await fetch(
+      `${API_BASE_URL}/topics/name/${encodeURIComponent(topicName)}`,
+      {
+        headers: await this.getHeaders(),
+      }
+    );
+    return this.handleResponse(response);
+  }
+
+  async followTopic(topicId: string) {
+    const response = await fetch(
+      `${API_BASE_URL}/topics/${topicId}/follow`,
+      {
+        method: 'POST',
+        headers: await this.getHeaders(),
+      }
+    );
+    return this.handleResponse(response);
+  }
+
+  async unfollowTopic(topicId: string) {
+    const response = await fetch(
+      `${API_BASE_URL}/topics/${topicId}/unfollow`,
+      {
+        method: 'DELETE',
+        headers: await this.getHeaders(),
+      }
+    );
+    return this.handleResponse(response);
+  }
+
+  async getFollowedTopics() {
+    const response = await fetch(
+      `${API_BASE_URL}/topics/following`,
+      {
+        headers: await this.getHeaders(),
+      }
+    );
+    return this.handleResponse(response);
+  }
+
+  async isFollowingTopic(topicId: string) {
+    const response = await fetch(
+      `${API_BASE_URL}/topics/${topicId}/is-following`,
+      {
+        headers: await this.getHeaders(),
+      }
+    );
+    return this.handleResponse(response);
+  }
+
+  async getTopicArticles(topicId: string, page = 1, perPage = 20) {
+    const response = await fetch(
+      `${API_BASE_URL}/topics/${topicId}/articles?page=${page}&per_page=${perPage}`,
       {
         headers: await this.getHeaders(),
       }

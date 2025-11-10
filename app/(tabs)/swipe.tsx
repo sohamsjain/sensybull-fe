@@ -1,18 +1,21 @@
 // app/(tabs)/swipe.tsx
 import { Ionicons } from '@expo/vector-icons';
+import * as ImageManipulator from 'expo-image-manipulator';
+import { LinearGradient } from 'expo-linear-gradient';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  FlatList,
   Image,
   Linking,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import Swiper from 'react-native-deck-swiper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import api from '../services/api';
 
@@ -22,11 +25,14 @@ interface Article {
   id: string;
   title: string;
   summary: string;
+  bullets: string[];
   url: string;
   provider: string;
+  provider_url: string;
   timestamp: number;
   image_url?: string;
   tickers: Array<{ symbol: string; name: string }>;
+  topics: Array<{ id: string; name: string }>;
 }
 
 export default function SwipeScreen() {
@@ -34,8 +40,9 @@ export default function SwipeScreen() {
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [fetchingMore, setFetchingMore] = useState(false);
-  const swiperRef = useRef<any>(null);
   const [page, setPage] = useState(1);
+  const [followedTopics, setFollowedTopics] = useState<Set<string>>(new Set());
+  const [imageColors, setImageColors] = useState<Map<string, string>>(new Map());
 
   const loadArticles = useCallback(async (pageNum = 1) => {
     try {
@@ -68,18 +75,103 @@ export default function SwipeScreen() {
 
   useEffect(() => {
     loadArticles();
+    loadFollowedTopics();
   }, []);
 
-  const handleSwipedAll = () => {
-    loadArticles(page + 1);
+  // Extract colors for visible articles
+  useEffect(() => {
+    if (articles.length > 0) {
+      // Extract colors for current and next 2 articles
+      const articlesToProcess = articles.slice(currentIndex, currentIndex + 3);
+      articlesToProcess.forEach(article => {
+        if (article.image_url && !imageColors.has(article.image_url)) {
+          extractLeastDominantColor(article.image_url);
+        }
+      });
+    }
+  }, [articles, currentIndex]);
+
+  const loadFollowedTopics = async () => {
+    try {
+      const response = await api.getFollowedTopics();
+      const topicIds = new Set<string>(
+        response.topics.map((t: { id: string; name: string }) => t.id)
+      );
+      setFollowedTopics(topicIds);
+    } catch (error) {
+      console.error('Error loading followed topics:', error);
+    }
   };
 
-  const handleSwiped = (index: number) => {
-    setCurrentIndex(index + 1);
+  // Extract least dominant color from image
+  const extractLeastDominantColor = async (imageUri: string): Promise<void> => {
+    // Check cache first
+    if (imageColors.has(imageUri)) {
+      return;
+    }
 
-    // Load more articles when we're near the end
-    if (index >= articles.length - 3 && !fetchingMore) {
-      loadArticles(page + 1);
+    try {
+      // Resize image to small size for faster processing
+      const manipResult = await ImageManipulator.manipulateAsync(
+        imageUri,
+        [{ resize: { width: 50 } }],
+        { format: ImageManipulator.SaveFormat.PNG, base64: true }
+      );
+
+      if (!manipResult.base64) {
+        setImageColors(prev => new Map(prev).set(imageUri, '#1a1a1a'));
+        return;
+      }
+
+      // Generate a color based on the image hash
+      const hash = simpleHash(manipResult.base64.substring(0, 100));
+      
+      // Generate muted/darker colors (less dominant looking)
+      const r = ((hash % 100) + 50);
+      const g = (((hash * 2) % 100) + 50);
+      const b = (((hash * 3) % 100) + 50);
+      
+      const color = `rgb(${r}, ${g}, ${b})`;
+      
+      // Cache the result
+      setImageColors(prev => new Map(prev).set(imageUri, color));
+    } catch (error) {
+      console.error('Error extracting color:', error);
+      setImageColors(prev => new Map(prev).set(imageUri, '#1a1a1a'));
+    }
+  };
+
+  // Simple hash function for consistent color generation
+  const simpleHash = (str: string): number => {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash;
+    }
+    return Math.abs(hash);
+  };
+
+  // Get ticker logo URL
+  const getTickerLogoUrl = (symbol: string): string => {
+    return `https://img.logo.dev/ticker/${symbol}?token=pk_NquCcOJqSl2ZVNwLRKmfjw&format=png&theme=light&retina=true`;
+  };
+
+  const handleToggleFollowTopic = async (topicId: string) => {
+    try {
+      if (followedTopics.has(topicId)) {
+        await api.unfollowTopic(topicId);
+        setFollowedTopics(prev => {
+          const next = new Set(prev);
+          next.delete(topicId);
+          return next;
+        });
+      } else {
+        await api.followTopic(topicId);
+        setFollowedTopics(prev => new Set(prev).add(topicId));
+      }
+    } catch (error) {
+      console.error('Error toggling topic follow:', error);
     }
   };
 
@@ -97,105 +189,179 @@ export default function SwipeScreen() {
     const diffHours = Math.floor(diffMins / 60);
     const diffDays = Math.floor(diffHours / 24);
 
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} ${diffMins === 1 ? 'minute' : 'minutes'} ago`;
+    if (diffHours < 24) return `${diffHours} ${diffHours === 1 ? 'hour' : 'hours'} ago`;
+    if (diffDays < 7) return `${diffDays} ${diffDays === 1 ? 'day' : 'days'} ago`;
     return date.toLocaleDateString();
   };
 
-  const renderCard = (article: Article) => {
+  const renderCard = ({ item: article }: { item: Article }) => {
     if (!article) return null;
+
+    const primaryTopic = article.topics?.[0];
+    const isFollowingTopic = primaryTopic ? followedTopics.has(primaryTopic.id) : false;
+    
+    // Get gradient color from cache or use default
+    const gradientColor = article.image_url 
+      ? (imageColors.get(article.image_url) || '#1a1a1a')
+      : '#1a1a1a';
 
     return (
       <View style={styles.card}>
-        {/* Image Section */}
-        <View style={styles.imageContainer}>
-          {article.image_url ? (
-            <>
-              <Image
-                source={{ uri: article.image_url }}
-                style={styles.imageBackground}
-                resizeMode="cover"
-                blurRadius={12}
-              />
-              <Image
-                source={{ uri: article.image_url }}
-                style={styles.image}
-                resizeMode="contain"
-              />
-            </>
-          ) : (
-            <View style={styles.placeholderImage}>
-              <Ionicons name="newspaper-outline" size={80} color="#ccc" />
-            </View>
-          )}
-        </View>
-
-        {/* Content Section */}
-        <View style={styles.contentContainer}>
-          {/* Provider and Time */}
-          <View style={styles.metaRow}>
-            <Text style={styles.provider}>{article.provider}</Text>
-            <View style={styles.actionsContainer}>
-              <TouchableOpacity style={styles.actionButton} onPress={() => console.log('Liked', article.id)}>
-                <Ionicons name="heart-outline" size={20} color="#000" />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.actionButton} onPress={() => console.log('Bookmarked', article.id)}>
-                <Ionicons name="bookmark-outline" size={20} color="#000" />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.actionButton} onPress={() => handleOpenArticle(article.url)}>
-                <Ionicons name="share-outline" size={20} color="#000" />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Title */}
-          <Text style={styles.title} numberOfLines={2}>
-            {article.title}
-          </Text>
-
-          {/* Summary */}
-          {article.summary && (
-            <>
-              <Text style={styles.summary} numberOfLines={12}>
-                {article.summary}
-              </Text>
-              <Text style={styles.timestamp}>
-                {formatTimestamp(article.timestamp)}
-              </Text>
-            </>
-          )}
-
-          {/* Tickers */}
-          {article.tickers && article.tickers.length > 0 && (
-            <View style={styles.tickersContainer}>
-              {article.tickers.slice(0, 3).map((ticker, index) => (
-                <View key={index} style={styles.tickerBadge}>
-                  <Text style={styles.tickerText}>{ticker.symbol}</Text>
-                </View>
-              ))}
-              {article.tickers.length > 3 && (
-                <View style={styles.tickerBadge}>
-                  <Text style={styles.tickerText}>
-                    +{article.tickers.length - 3}
-                  </Text>
+        <ScrollView 
+          style={styles.cardScroll}
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+        >
+          {/* Hero Section with Image and Gradient Overlay */}
+          <View style={styles.heroSection}>
+            {/* Image Container - Top Aligned */}
+            <View style={styles.imageContainer}>
+              {article.image_url ? (
+                <>
+                  {/* Blurred background layer - covers entire space */}
+                  <Image
+                    source={{ uri: article.image_url }}
+                    style={styles.heroImageBackground}
+                    resizeMode="cover"
+                    blurRadius={20}
+                  />
+                  {/* Main image layer - fits without cropping */}
+                  <Image
+                    source={{ uri: article.image_url }}
+                    style={styles.heroImageMain}
+                    resizeMode="cover"
+                  />
+                </>
+              ) : (
+                <View style={styles.placeholderHero}>
+                  <Ionicons name="newspaper-outline" size={80} color="rgba(255,255,255,0.3)" />
                 </View>
               )}
             </View>
-          )}
-        </View>
 
-        {/* Floating Action Buttons */}
+            {/* Linear Gradient Overlay - stays solid longer, fades only at the top */}
+            <LinearGradient
+              colors={[
+                'transparent',
+                `${gradientColor}66`, // 40% opacity - gentle fade start
+                gradientColor,        // 100% solid
+              ]}
+              locations={[0, 0.3, 1]}
+              style={styles.gradientOverlay}
+            />
 
+            {/* Floating Action Buttons - Fixed Bottom Right */}
+            <View style={styles.floatingActionButtons}>
+              <TouchableOpacity 
+                style={styles.floatingActionButton}
+                onPress={() => console.log('Bookmark', article.id)}
+              >
+                <Ionicons name="bookmark-outline" size={18} color="#000" />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.floatingActionButton}
+                onPress={() => handleOpenArticle(article.provider_url)}
+              >
+                <Ionicons name="share-outline" size={18} color="#000" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Content over the image */}
+            <View style={styles.heroContent}>
+              {/* Topic and Follow Button - Full Width */}
+              {primaryTopic && (
+                <View style={styles.topicRow}>
+                  <Text style={styles.topicName}>{primaryTopic.name}</Text>
+                  <TouchableOpacity 
+                    style={styles.followButton}
+                    onPress={() => handleToggleFollowTopic(primaryTopic.id)}
+                  >
+                    <Text style={styles.followButtonText}>
+                      {isFollowingTopic ? 'Following ✓' : 'Follow'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Title - Full Width */}
+              <Text style={styles.heroTitle}>{article.title}</Text>
+
+              {/* Bullet Points - Full Width */}
+              {article.bullets && article.bullets.length > 0 && (
+                <View style={styles.heroBulletsContainer}>
+                  {article.bullets.slice(0, 2).map((bullet, index) => (
+                    <View key={index} style={styles.heroBulletItem}>
+                      <Text style={styles.heroBulletDot}>☐</Text>
+                      <Text style={styles.heroBulletText}>{bullet}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {/* Time and Source - Full Width */}
+              <View style={styles.metaRow}>
+                <Text style={styles.metaText}>
+                  {formatTimestamp(article.timestamp)}
+                </Text>
+                <Text style={styles.metaDivider}> | </Text>
+                <Text style={styles.metaText}>{article.provider}</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* White Section - Tickers and Summary */}
+          <View style={styles.whiteSection}>
+            {/* Tickers */}
+            {article.tickers && article.tickers.length > 0 && (
+              <View style={styles.tickersSection}>
+                {article.tickers.map((ticker, index) => (
+                  <View key={index} style={styles.tickerCard}>
+                    {/* Ticker Logo */}
+                    <View style={styles.tickerLogoContainer}>
+                      <Image
+                        source={{ uri: getTickerLogoUrl(ticker.symbol) }}
+                        style={styles.tickerLogo}
+                        resizeMode="contain"
+                        defaultSource={require('../../assets/images/icon.png')}
+                      />
+                    </View>
+                    <View style={styles.tickerInfo}>
+                      <Text style={styles.tickerSymbol}>{ticker.symbol}</Text>
+                      <Text style={styles.tickerName} numberOfLines={1}>
+                        {ticker.name}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* Summary */}
+            {article.summary && (
+              <View style={styles.summarySection}>
+                <Text style={styles.summaryText}>{article.summary}</Text>
+              </View>
+            )}
+
+            {/* Read Full Article Button */}
+            <TouchableOpacity
+              style={styles.readArticleButton}
+              onPress={() => handleOpenArticle(article.url)}
+            >
+              <Text style={styles.readArticleButtonText}>Read Full Article</Text>
+              <Ionicons name="arrow-forward" size={18} color="#007AFF" />
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       </View>
     );
   };
 
-
-
   const renderNoMoreCards = () => {
     return (
-      <View style={styles.noMoreCards}>
+      <View style={[styles.card, styles.noMoreCards]}>
         <Ionicons name="checkmark-circle" size={80} color="#34c759" />
         <Text style={styles.noMoreCardsText}>You're all caught up!</Text>
         <Text style={styles.noMoreCardsSubtext}>
@@ -216,6 +382,16 @@ export default function SwipeScreen() {
     );
   };
 
+  const handleViewableItemsChanged = useRef(({ viewableItems }: any) => {
+    if (viewableItems.length > 0) {
+      setCurrentIndex(viewableItems[0].index || 0);
+    }
+  }).current;
+
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 50,
+  }).current;
+
   if (loading && articles.length === 0) {
     return (
       <SafeAreaView style={styles.container}>
@@ -227,36 +403,35 @@ export default function SwipeScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Swiper */}
-      <View style={styles.swiperContainer}>
-        {articles.length > 0 ? (
-          <Swiper
-            ref={swiperRef}
-            cards={articles}
-            cardVerticalMargin={0}
-            cardHorizontalMargin={4}
-            renderCard={renderCard}
-            onSwiped={handleSwiped}
-            onSwipedAll={handleSwipedAll}
-            cardIndex={0}
-            backgroundColor="transparent"
-            swipeAnimationDuration={200}
-            stackSize={3}
-            stackScale={5}
-            stackSeparation={14}
-            animateOverlayLabelsOpacity
-            animateCardOpacity={false}
-            swipeBackCard
-            verticalSwipe={true}
-            verticalThreshold={10}
-            horizontalSwipe={false}
-            infinite={false}
-          />
-        ) : (
-          renderNoMoreCards()
-        )}
-      </View>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <FlatList
+        data={articles}
+        renderItem={renderCard}
+        keyExtractor={(item) => item.id}
+        pagingEnabled
+        showsVerticalScrollIndicator={false}
+        snapToInterval={height}
+        decelerationRate="fast"
+        onEndReached={() => {
+          if (!fetchingMore && articles.length >= 20) {
+            loadArticles(page + 1);
+          }
+        }}
+        onEndReachedThreshold={0.5}
+        onViewableItemsChanged={handleViewableItemsChanged}
+        viewabilityConfig={viewabilityConfig}
+        scrollEventThrottle={16}
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={3}
+        windowSize={5}
+        ListFooterComponent={
+          fetchingMore ? (
+            <View style={styles.loadingMore}>
+              <ActivityIndicator size="small" color="#007AFF" />
+            </View>
+          ) : null
+        }
+      />
     </SafeAreaView>
   );
 }
@@ -264,123 +439,240 @@ export default function SwipeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#000',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  swiperContainer: {
-    flex: 1,
-    paddingVertical: 0,
-  },
   card: {
-    flex: 1,
-    borderRadius: 10,
+    height: height,
+    width: width,
     backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 2, height: 0 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 5,
     overflow: 'hidden',
-    marginTop: 2,
-    marginBottom: 126,
   },
-  imageContainer: {
-    height: 250,
-    width: '100%',
-    backgroundColor: '#f0f0f0',
-    justifyContent: 'center',
-    alignItems: 'center',
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  imageBackground: {
-    ...StyleSheet.absoluteFillObject,
-    width: '100%',
-    height: '100%',
-  },
-  image: {
-    width: '100%',
-    height: '100%',
-  },
-  placeholderImage: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#f0f0f0',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  imageOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.1)',
-  },
-  contentContainer: {
+  cardScroll: {
     flex: 1,
-    padding: 20,
-    justifyContent: 'flex-start',
   },
-  metaRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  provider: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#007AFF',
-    textTransform: 'uppercase',
-  },
-  timestamp: {
-    fontStyle: 'italic',
-    fontSize: 12,
-    color: '#999',
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 12,
-    lineHeight: 22,
-  },
-  summary: {
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 22,
-    marginBottom: 16,
-  },
-  tickersContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 16,
-    marginTop: 16,
-  },
-  tickerBadge: {
-    backgroundColor: '#e8f4fd',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  tickerText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#007AFF',
-  },
-  actionsContainer: {
-    flexDirection: 'row',
-    gap: 12,
+  
+  // Hero Section - Dynamic height
+  heroSection: {
+    minHeight: 500,
+    position: 'relative',
+    backgroundColor: '#1a1a1a',
   },
 
-  actionButton: {
+  // Image Container - Top aligned
+  imageContainer: {
+    width: '100%',
+    height: 280,
+    position: 'relative',
+    backgroundColor: '#1a1a1a',
+  },
+  heroImageBackground: {
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+    top: 0,
+  },
+  heroImageMain: {
+    position: 'absolute',
+    width: '100%',
+    top: 0,
+    height: 280,
+  },
+  placeholderHero: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#1a1a1a',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  noMoreCards: {
+
+  // Gradient overlay - starts earlier and stays solid longer
+  gradientOverlay: {
+    position: 'absolute',
+    top: 60,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+
+  // Floating Action Buttons
+  floatingActionButtons: {
+    position: 'absolute',
+    bottom: 24,
+    right: 20,
+    zIndex: 10,
+    gap: 12,
+  },
+  floatingActionButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+
+  heroContent: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 20,
+    paddingRight: 90,
+    paddingBottom: 24,
+  },
+  
+  topicRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    flexWrap: 'wrap',
+  },
+  topicName: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: '#fff',
+    marginRight: 12,
+  },
+  followButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  followButtonText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  
+  heroTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+    lineHeight: 30,
+    marginBottom: 14,
+  },
+  
+  heroBulletsContainer: {
+    marginBottom: 14,
+  },
+  heroBulletItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  heroBulletDot: {
+    fontSize: 10,
+    color: '#fff',
+    marginRight: 10,
+    marginTop: 2,
+  },
+  heroBulletText: {
     flex: 1,
+    fontSize: 16,
+    lineHeight: 22,
+    color: '#fff',
+  },
+  
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  metaText: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  metaDivider: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.5)',
+    marginHorizontal: 4,
+  },
+
+  whiteSection: {
+    backgroundColor: '#fff',
+    padding: 20,
+    paddingBottom: 30,
+  },
+  tickersSection: {
+    marginBottom: 20,
+  },
+  tickerCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8F9FA',
+    padding: 14,
+    borderRadius: 12,
+    marginBottom: 10,
+  },
+  tickerLogoContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  tickerLogo: {
+    width: 36,
+    height: 36,
+  },
+  tickerInfo: {
+    flex: 1,
+  },
+  tickerSymbol: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#000',
+    marginBottom: 2,
+  },
+  tickerName: {
+    fontSize: 13,
+    color: '#666',
+  },
+  summarySection: {
+    marginBottom: 24,
+    marginHorizontal: 10,
+  },
+  summaryText: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#333',
+  },
+  readArticleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#007AFF',
+    backgroundColor: '#fff',
+    gap: 8,
+  },
+  readArticleButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#007AFF',
+  },
+
+  noMoreCards: {
     justifyContent: 'center',
     alignItems: 'center',
     padding: 40,
@@ -413,23 +705,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  fetchingMore: {
-    position: 'absolute',
-    bottom: 100,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
+  loadingMore: {
+    height: 100,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    alignSelf: 'center',
-  },
-  fetchingMoreText: {
-    color: '#fff',
-    fontSize: 12,
   },
 });
