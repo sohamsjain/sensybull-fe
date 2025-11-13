@@ -269,14 +269,17 @@ export default function SwipeScreen() {
               {/* Bullet Points - Full Width */}
               {article.bullets && article.bullets.length > 0 && (
                 <View style={styles.heroBulletsContainer}>
-                  {article.bullets.slice(0, 2).map((bullet, index) => (
-                    <Text key={`${article.id}-bullet-${index}`} style={styles.heroBulletText}>
-                      • {bullet}
-                    </Text>
-                  ))}
+                  {article.bullets.slice(0, 2).map((bullet, index) => {
+                    const cleanBullet = bullet.replace(/["“”]/g, '');
+                    return (
+                      <View key={`${article.id}-bullet-${index}`} style={styles.heroBulletItem}>
+                        <Text style={styles.heroBulletDot}>☐</Text>
+                        <Text style={styles.heroBulletText}>{cleanBullet}</Text>
+                      </View>
+                    );
+                  })}
                 </View>
               )}
-
 
               {/* Time and Source - Full Width */}
               <View style={styles.metaRow}>
@@ -655,7 +658,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 22,
     color: '#fff',
-    marginBottom: 8,
   },
 
   metaRow: {
