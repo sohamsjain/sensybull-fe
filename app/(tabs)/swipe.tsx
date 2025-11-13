@@ -1,7 +1,7 @@
 // app/(tabs)/swipe.tsx
 import { Ionicons } from '@expo/vector-icons';
-import * as ImageManipulator from 'expo-image-manipulator';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -9,12 +9,15 @@ import {
   Dimensions,
   FlatList,
   Image,
+  KeyboardAvoidingView,
   Linking,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import api from '../services/api';
@@ -36,13 +39,19 @@ interface Article {
 }
 
 export default function SwipeScreen() {
+  const params = useLocalSearchParams();
+  const { articleId, topicId, articleIds } = params;
+
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [fetchingMore, setFetchingMore] = useState(false);
   const [page, setPage] = useState(1);
   const [followedTopics, setFollowedTopics] = useState<Set<string>>(new Set());
-  const [imageColors, setImageColors] = useState<Map<string, string>>(new Map());
+  const [question, setQuestion] = useState('');
+  const [expandedSummaryId, setExpandedSummaryId] = useState<string | null>(null);
+
+  const flatListRef = useRef<FlatList>(null);
 
   const loadArticles = useCallback(async (pageNum = 1) => {
     try {
@@ -52,13 +61,33 @@ export default function SwipeScreen() {
         setFetchingMore(true);
       }
 
-      const response = await api.getArticles({
-        page: pageNum,
-        per_page: 20,
-      });
+      let response;
+
+      // If we have a topicId from params, load that topic's articles
+      if (topicId && topicId !== 'for-you' && pageNum === 1) {
+        response = await api.getTopicArticles(topicId as string, pageNum, 20);
+      } else {
+        // Default: load all articles
+        response = await api.getArticles({
+          page: pageNum,
+          per_page: 20,
+        });
+      }
 
       if (pageNum === 1) {
         setArticles(response.articles);
+
+        // If we have a specific articleId, find its index and scroll to it
+        if (articleId) {
+          const index = response.articles.findIndex((a: Article) => a.id === articleId);
+          if (index !== -1) {
+            setCurrentIndex(index);
+            // Use setTimeout to ensure FlatList is mounted
+            setTimeout(() => {
+              flatListRef.current?.scrollToIndex({ index, animated: false });
+            }, 100);
+          }
+        }
       } else {
         setArticles(prev => [...prev, ...response.articles]);
       }
@@ -71,25 +100,12 @@ export default function SwipeScreen() {
       setLoading(false);
       setFetchingMore(false);
     }
-  }, []);
+  }, [topicId, articleId]);
 
   useEffect(() => {
     loadArticles();
     loadFollowedTopics();
   }, []);
-
-  // Extract colors for visible articles
-  useEffect(() => {
-    if (articles.length > 0) {
-      // Extract colors for current and next 2 articles
-      const articlesToProcess = articles.slice(currentIndex, currentIndex + 3);
-      articlesToProcess.forEach(article => {
-        if (article.image_url && !imageColors.has(article.image_url)) {
-          extractLeastDominantColor(article.image_url);
-        }
-      });
-    }
-  }, [articles, currentIndex]);
 
   const loadFollowedTopics = async () => {
     try {
@@ -101,55 +117,6 @@ export default function SwipeScreen() {
     } catch (error) {
       console.error('Error loading followed topics:', error);
     }
-  };
-
-  // Extract least dominant color from image
-  const extractLeastDominantColor = async (imageUri: string): Promise<void> => {
-    // Check cache first
-    if (imageColors.has(imageUri)) {
-      return;
-    }
-
-    try {
-      // Resize image to small size for faster processing
-      const manipResult = await ImageManipulator.manipulateAsync(
-        imageUri,
-        [{ resize: { width: 50 } }],
-        { format: ImageManipulator.SaveFormat.PNG, base64: true }
-      );
-
-      if (!manipResult.base64) {
-        setImageColors(prev => new Map(prev).set(imageUri, '#1a1a1a'));
-        return;
-      }
-
-      // Generate a color based on the image hash
-      const hash = simpleHash(manipResult.base64.substring(0, 100));
-      
-      // Generate muted/darker colors (less dominant looking)
-      const r = ((hash % 100) + 50);
-      const g = (((hash * 2) % 100) + 50);
-      const b = (((hash * 3) % 100) + 50);
-      
-      const color = `rgb(${r}, ${g}, ${b})`;
-      
-      // Cache the result
-      setImageColors(prev => new Map(prev).set(imageUri, color));
-    } catch (error) {
-      console.error('Error extracting color:', error);
-      setImageColors(prev => new Map(prev).set(imageUri, '#1a1a1a'));
-    }
-  };
-
-  // Simple hash function for consistent color generation
-  const simpleHash = (str: string): number => {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash;
-    }
-    return Math.abs(hash);
   };
 
   // Get ticker logo URL
@@ -181,6 +148,19 @@ export default function SwipeScreen() {
     });
   };
 
+  const handleSendQuestion = () => {
+    if (question.trim()) {
+      // TODO: Implement question handling logic
+      console.log('Question sent:', question);
+      Alert.alert('Question Sent', `You asked: ${question}`);
+      setQuestion('');
+    }
+  };
+
+  const toggleSummaryExpanded = (articleId: string) => {
+    setExpandedSummaryId(prev => prev === articleId ? null : articleId);
+  };
+
   const formatTimestamp = (timestamp: number) => {
     const date = new Date(timestamp);
     const now = new Date();
@@ -201,18 +181,15 @@ export default function SwipeScreen() {
 
     const primaryTopic = article.topics?.[0];
     const isFollowingTopic = primaryTopic ? followedTopics.has(primaryTopic.id) : false;
-    
-    // Get gradient color from cache or use default
-    const gradientColor = article.image_url 
-      ? (imageColors.get(article.image_url) || '#1a1a1a')
-      : '#1a1a1a';
+    const isSummaryExpanded = expandedSummaryId === article.id;
 
     return (
       <View style={styles.card}>
-        <ScrollView 
+        <ScrollView
           style={styles.cardScroll}
           showsVerticalScrollIndicator={false}
           bounces={false}
+          scrollEnabled={!isSummaryExpanded}
         >
           {/* Hero Section with Image and Gradient Overlay */}
           <View style={styles.heroSection}>
@@ -241,26 +218,27 @@ export default function SwipeScreen() {
               )}
             </View>
 
-            {/* Linear Gradient Overlay - stays solid longer, fades only at the top */}
+            {/* Linear Gradient Overlay - Black fading shades */}
             <LinearGradient
               colors={[
-                'transparent',
-                `${gradientColor}66`, // 40% opacity - gentle fade start
-                gradientColor,        // 100% solid
+                'rgba(0,0,0,0.1)', // light fade near top
+                'rgba(0,0,0,0.5)',
+                'rgba(0,0,0,0.9)',
+                '#000000',         // strong coverage at bottom
               ]}
-              locations={[0, 0.3, 1]}
+              locations={[0, 0.3, 0.4, 1]}
               style={styles.gradientOverlay}
             />
 
             {/* Floating Action Buttons - Fixed Bottom Right */}
             <View style={styles.floatingActionButtons}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.floatingActionButton}
                 onPress={() => console.log('Bookmark', article.id)}
               >
                 <Ionicons name="bookmark-outline" size={18} color="#000" />
               </TouchableOpacity>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.floatingActionButton}
                 onPress={() => handleOpenArticle(article.provider_url)}
               >
@@ -274,7 +252,7 @@ export default function SwipeScreen() {
               {primaryTopic && (
                 <View style={styles.topicRow}>
                   <Text style={styles.topicName}>{primaryTopic.name}</Text>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={styles.followButton}
                     onPress={() => handleToggleFollowTopic(primaryTopic.id)}
                   >
@@ -292,7 +270,7 @@ export default function SwipeScreen() {
               {article.bullets && article.bullets.length > 0 && (
                 <View style={styles.heroBulletsContainer}>
                   {article.bullets.slice(0, 2).map((bullet, index) => (
-                    <View key={index} style={styles.heroBulletItem}>
+                    <View key={`${article.id}-bullet-${index}`} style={styles.heroBulletItem}>
                       <Text style={styles.heroBulletDot}>☐</Text>
                       <Text style={styles.heroBulletText}>{bullet}</Text>
                     </View>
@@ -315,46 +293,104 @@ export default function SwipeScreen() {
           <View style={styles.whiteSection}>
             {/* Tickers */}
             {article.tickers && article.tickers.length > 0 && (
-              <View style={styles.tickersSection}>
-                {article.tickers.map((ticker, index) => (
-                  <View key={index} style={styles.tickerCard}>
-                    {/* Ticker Logo */}
-                    <View style={styles.tickerLogoContainer}>
-                      <Image
-                        source={{ uri: getTickerLogoUrl(ticker.symbol) }}
-                        style={styles.tickerLogo}
-                        resizeMode="contain"
-                        defaultSource={require('../../assets/images/icon.png')}
-                      />
+              article.tickers.length > 1 ? (
+                // Horizontal scroll for multiple tickers
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.tickersScrollContainer}
+                >
+                  {article.tickers.map((ticker, index) => (
+                    <View key={`${article.id}-ticker-${ticker.symbol}-${index}`} style={styles.tickerCardSmall}>
+                      <View style={styles.tickerLogoContainer}>
+                        <Image
+                          source={{ uri: getTickerLogoUrl(ticker.symbol) }}
+                          style={styles.tickerLogo}
+                          resizeMode="contain"
+                          defaultSource={require('../../assets/images/icon.png')}
+                        />
+                      </View>
+                      <View style={styles.tickerInfo}>
+                        <Text style={styles.tickerSymbol}>{ticker.symbol}</Text>
+                        <Text style={styles.tickerName} numberOfLines={1}>
+                          {ticker.name}
+                        </Text>
+                      </View>
                     </View>
-                    <View style={styles.tickerInfo}>
-                      <Text style={styles.tickerSymbol}>{ticker.symbol}</Text>
-                      <Text style={styles.tickerName} numberOfLines={1}>
-                        {ticker.name}
-                      </Text>
+                  ))}
+                </ScrollView>
+              ) : (
+                // Single ticker (normal layout)
+                <View style={styles.tickersSection}>
+                  {article.tickers.map((ticker, index) => (
+                    <View key={`${article.id}-ticker-${ticker.symbol}-${index}`} style={styles.tickerCard}>
+                      <View style={styles.tickerLogoContainer}>
+                        <Image
+                          source={{ uri: getTickerLogoUrl(ticker.symbol) }}
+                          style={styles.tickerLogo}
+                          resizeMode="contain"
+                          defaultSource={require('../../assets/images/icon.png')}
+                        />
+                      </View>
+                      <View style={styles.tickerInfo}>
+                        <Text style={styles.tickerSymbol}>{ticker.symbol}</Text>
+                        <Text style={styles.tickerName} numberOfLines={1}>
+                          {ticker.name}
+                        </Text>
+                      </View>
                     </View>
-                  </View>
-                ))}
-              </View>
+                  ))}
+                </View>
+              )
             )}
+
 
             {/* Summary */}
             {article.summary && (
-              <View style={styles.summarySection}>
-                <Text style={styles.summaryText}>{article.summary}</Text>
-              </View>
+              <TouchableOpacity
+                style={styles.summarySection}
+                onPress={() => toggleSummaryExpanded(article.id)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.summaryText} numberOfLines={isSummaryExpanded ? undefined : article.tickers.length > 0 ? 3 : 7}>
+                  {article.summary}
+                  {!isSummaryExpanded && article.summary.length > 150 && (
+                    <Text style={styles.moreText}> more...</Text>
+                  )}
+                </Text>
+              </TouchableOpacity>
             )}
-
-            {/* Read Full Article Button */}
-            <TouchableOpacity
-              style={styles.readArticleButton}
-              onPress={() => handleOpenArticle(article.url)}
-            >
-              <Text style={styles.readArticleButtonText}>Read Full Article</Text>
-              <Ionicons name="arrow-forward" size={18} color="#007AFF" />
-            </TouchableOpacity>
           </View>
         </ScrollView>
+
+        {/* Expanded Summary Overlay - Instagram Reels Style */}
+        {isSummaryExpanded && (
+          <View style={styles.summaryOverlay}>
+            <TouchableOpacity
+              style={styles.summaryOverlayBackground}
+              activeOpacity={1}
+              onPress={() => setExpandedSummaryId(null)}
+            />
+            <View style={styles.summaryOverlayContent}>
+              <TouchableOpacity
+                style={styles.summaryOverlayHandle}
+                onPress={() => setExpandedSummaryId(null)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.summaryOverlayHandleLine} />
+              </TouchableOpacity>
+              <ScrollView
+                style={styles.summaryScrollView}
+                contentContainerStyle={styles.summaryScrollContent}
+                showsVerticalScrollIndicator={true}
+                nestedScrollEnabled={true} // ✅
+                keyboardShouldPersistTaps="handled" // ✅
+              >
+                <Text style={styles.summaryOverlayText}>{article.summary}</Text>
+              </ScrollView>
+            </View>
+          </View>
+        )}
       </View>
     );
   };
@@ -403,35 +439,67 @@ export default function SwipeScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <FlatList
-        data={articles}
-        renderItem={renderCard}
-        keyExtractor={(item) => item.id}
-        pagingEnabled
-        showsVerticalScrollIndicator={false}
-        snapToInterval={height}
-        decelerationRate="fast"
-        onEndReached={() => {
-          if (!fetchingMore && articles.length >= 20) {
-            loadArticles(page + 1);
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoidingView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
+      >
+        <FlatList
+          ref={flatListRef}
+          data={articles}
+          renderItem={renderCard}
+          keyExtractor={(item, index) => `${item.id}-${index}`}
+          pagingEnabled
+          showsVerticalScrollIndicator={false}
+          snapToInterval={height}
+          decelerationRate="fast"
+          scrollEnabled={expandedSummaryId === null}
+          onEndReached={() => {
+            if (!fetchingMore && articles.length >= 20) {
+              loadArticles(page + 1);
+            }
+          }}
+          onEndReachedThreshold={0.5}
+          onViewableItemsChanged={handleViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig}
+          scrollEventThrottle={16}
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={3}
+          windowSize={5}
+          ListFooterComponent={
+            fetchingMore ? (
+              <View style={styles.loadingMore}>
+                <ActivityIndicator size="small" color="#007AFF" />
+              </View>
+            ) : null
           }
-        }}
-        onEndReachedThreshold={0.5}
-        onViewableItemsChanged={handleViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
-        scrollEventThrottle={16}
-        removeClippedSubviews={true}
-        maxToRenderPerBatch={3}
-        windowSize={5}
-        ListFooterComponent={
-          fetchingMore ? (
-            <View style={styles.loadingMore}>
-              <ActivityIndicator size="small" color="#007AFF" />
-            </View>
-          ) : null
-        }
-      />
+        />
+
+        {/* Fixed Input Box at Bottom */}
+        <View style={styles.inputContainer}>
+          <View style={styles.inputWrapper}>
+            <Ionicons name="sparkles" size={20} color="#007AFF" style={styles.inputIcon} />
+            <TextInput
+              style={styles.input}
+              placeholder="Ask Sensybull"
+              placeholderTextColor="#999"
+              value={question}
+              onChangeText={setQuestion}
+              returnKeyType="send"
+              onSubmitEditing={handleSendQuestion}
+              blurOnSubmit={false}
+            />
+            <TouchableOpacity
+              style={[styles.sendButton, !question.trim() && styles.sendButtonDisabled]}
+              onPress={handleSendQuestion}
+              disabled={!question.trim()}
+            >
+              <Ionicons name="send" size={20} color={question.trim() ? '#007AFF' : '#ccc'} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -440,6 +508,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000',
+  },
+  keyboardAvoidingView: {
+    flex: 1,
   },
   loadingContainer: {
     flex: 1,
@@ -455,7 +526,7 @@ const styles = StyleSheet.create({
   cardScroll: {
     flex: 1,
   },
-  
+
   // Hero Section - Dynamic height
   heroSection: {
     minHeight: 500,
@@ -493,7 +564,7 @@ const styles = StyleSheet.create({
   // Gradient overlay - starts earlier and stays solid longer
   gradientOverlay: {
     position: 'absolute',
-    top: 60,
+    top: 0,
     left: 0,
     right: 0,
     bottom: 0,
@@ -530,7 +601,7 @@ const styles = StyleSheet.create({
     paddingRight: 90,
     paddingBottom: 24,
   },
-  
+
   topicRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -556,7 +627,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#fff',
   },
-  
+
   heroTitle: {
     fontSize: 24,
     fontWeight: 'bold',
@@ -564,7 +635,7 @@ const styles = StyleSheet.create({
     lineHeight: 30,
     marginBottom: 14,
   },
-  
+
   heroBulletsContainer: {
     marginBottom: 14,
   },
@@ -585,7 +656,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: '#fff',
   },
-  
+
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -606,7 +677,7 @@ const styles = StyleSheet.create({
     paddingBottom: 30,
   },
   tickersSection: {
-    marginBottom: 20,
+    marginBottom: 10,
   },
   tickerCard: {
     flexDirection: 'row',
@@ -645,6 +716,23 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#666',
   },
+
+  tickersScrollContainer: {
+    paddingVertical: 4,
+    paddingLeft: 4,
+    paddingRight: 12,
+  },
+
+  tickerCardSmall: {
+    width: 160,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8F9FA',
+    padding: 12,
+    borderRadius: 12,
+    marginRight: 10,
+  },
+
   summarySection: {
     marginBottom: 24,
     marginHorizontal: 10,
@@ -653,6 +741,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
     color: '#333',
+  },
+  moreText: {
+    fontSize: 16,
+    color: '#007AFF',
+    fontWeight: '600',
   },
   readArticleButton: {
     flexDirection: 'row',
@@ -709,5 +802,92 @@ const styles = StyleSheet.create({
     height: 100,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+
+  // Fixed Input Container at Bottom
+  inputContainer: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 8,
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  inputIcon: {
+    marginRight: 8,
+  },
+  input: {
+    flex: 1,
+    fontSize: 16,
+    color: '#333',
+    paddingVertical: 0,
+  },
+  sendButton: {
+    marginLeft: 8,
+    padding: 4,
+  },
+  sendButtonDisabled: {
+    opacity: 0.5,
+  },
+
+  // Summary Overlay - Instagram Reels Style
+  summaryOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'flex-end',
+    zIndex: 9999,
+    elevation: 9999,
+  },
+  summaryOverlayBackground: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+  },
+  summaryOverlayContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    height: '80%',
+    overflow: 'hidden',
+  },
+  summaryOverlayHandle: {
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  summaryOverlayHandleLine: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#ddd',
+    borderRadius: 2,
+  },
+  summaryScrollView: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  summaryScrollContent: {
+    paddingBottom: 40,
+    paddingHorizontal: 10,
+  },
+  summaryOverlayText: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#333',
   },
 });

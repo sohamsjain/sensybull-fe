@@ -1,214 +1,392 @@
 // app/(tabs)/index.tsx
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
+  Dimensions,
   FlatList,
-  RefreshControl,
+  Image,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
+
+const { width, height } = Dimensions.get('window');
+const MIN_CARD_HEIGHT = 400;
+const MAX_CARD_HEIGHT = height * 0.8;
+
+interface Topic {
+  id: string;
+  name: string;
+}
 
 interface Article {
   id: string;
   title: string;
   summary: string;
+  bullets: string[];
   url: string;
   provider: string;
+  provider_url: string;
   timestamp: number;
+  image_url?: string;
   tickers: Array<{ symbol: string; name: string }>;
+  topics: Array<{ id: string; name: string }>;
 }
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { user } = useAuth();
-  const [articles, setArticles] = useState<Article[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchTimer, setSearchTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const flatListRef = useRef<FlatList>(null);
+  
+  // Topics state
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [selectedTopicIndex, setSelectedTopicIndex] = useState(0);
+  const [loadingTopics, setLoadingTopics] = useState(true);
+  const FOR_YOU_TAB = { id: 'for-you', name: 'For You' };
+  
+  // Articles state
+  const [articlesByTopic, setArticlesByTopic] = useState<Map<string, Article[]>>(new Map());
+  const [loadingArticles, setLoadingArticles] = useState(false);
+  const [page, setPage] = useState<Map<string, number>>(new Map());
+  const [hasMore, setHasMore] = useState<Map<string, boolean>>(new Map());
+  
+  // Image dimensions state
+  const [imageDimensions, setImageDimensions] = useState<Map<string, { width: number; height: number }>>(new Map());
 
-  const loadArticles = useCallback(async (pageNum = 1, search = '') => {
-    try {
-      const response = await api.getArticles({
-        page: pageNum,
-        per_page: 20,
-        search: search || undefined,
-      });
+  // Load topics on mount
+  useEffect(() => {
+    loadFollowedTopics();
+  }, []);
 
-      if (pageNum === 1) {
-        setArticles(response.articles);
-      } else {
-        setArticles(prev => [...prev, ...response.articles]);
+  // Load articles when topic changes
+  useEffect(() => {
+    if (topics.length > 0) {
+      const selectedTopic = topics[selectedTopicIndex];
+      if (!articlesByTopic.has(selectedTopic.id)) {
+        loadArticlesForTopic(selectedTopic.id, 1);
       }
+    }
+  }, [selectedTopicIndex, topics]);
 
-      setHasMore(response.pagination.has_next);
-      setPage(pageNum);
+  // Load image dimensions for visible articles
+  useEffect(() => {
+    const selectedTopic = topics[selectedTopicIndex];
+    if (selectedTopic) {
+      const articles = articlesByTopic.get(selectedTopic.id) || [];
+      articles.slice(0, 10).forEach(article => {
+        if (article.image_url && !imageDimensions.has(article.image_url)) {
+          getImageDimensions(article.image_url);
+        }
+      });
+    }
+  }, [selectedTopicIndex, articlesByTopic]);
+
+  const loadFollowedTopics = async () => {
+    try {
+      setLoadingTopics(true);
+      const response = await api.getFollowedTopics();
+      
+      if (response.topics && response.topics.length > 0) {
+        setTopics([FOR_YOU_TAB, ...response.topics]);
+      } else {
+        setTopics([FOR_YOU_TAB]);
+      }
+    } catch (error) {
+      console.error('Error loading topics:', error);
+    } finally {
+      setLoadingTopics(false);
+    }
+  };
+
+  const loadArticlesForTopic = async (topicId: string, pageNum: number) => {
+    try {
+      setLoadingArticles(true);
+      
+      let response;
+      if (topicId === 'for-you') {
+        response = await api.getArticles({ page: pageNum, per_page: 20 });
+      } else {
+        response = await api.getTopicArticles(topicId, pageNum, 20);
+      }
+      
+      const existingArticles = articlesByTopic.get(topicId) || [];
+      const existingIds = new Set(existingArticles.map(a => a.id));
+      
+      // Deduplicate: only add articles we don't already have
+      const newUniqueArticles = response.articles.filter((a: Article) => !existingIds.has(a.id));
+      
+      const newArticles = pageNum === 1 
+        ? response.articles 
+        : [...existingArticles, ...newUniqueArticles];
+      
+      setArticlesByTopic(prev => new Map(prev).set(topicId, newArticles));
+      setPage(prev => new Map(prev).set(topicId, pageNum));
+      setHasMore(prev => new Map(prev).set(topicId, response.pagination.has_next));
     } catch (error) {
       console.error('Error loading articles:', error);
-      Alert.alert('Error', 'Failed to load articles');
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      setLoadingArticles(false);
     }
-  }, []);
+  };
 
-  useEffect(() => {
-    loadArticles();
-  }, []);
+  const getImageDimensions = (imageUri: string) => {
+    if (imageDimensions.has(imageUri)) return;
 
-  const handleRefresh = () => {
-    setRefreshing(true);
-    setPage(1);
-    loadArticles(1, searchQuery);
+    Image.getSize(
+      imageUri,
+      (imgWidth, imgHeight) => {
+        setImageDimensions(prev => new Map(prev).set(imageUri, { 
+          width: imgWidth, 
+          height: imgHeight 
+        }));
+      },
+      (error) => {
+        console.error('Error getting image size:', error);
+        // Set default dimensions on error
+        setImageDimensions(prev => new Map(prev).set(imageUri, { 
+          width: width, 
+          height: MIN_CARD_HEIGHT 
+        }));
+      }
+    );
+  };
+
+  const getCardHeight = (imageUri?: string): number => {
+    // Use default height when no image URL is provided
+    if (!imageUri) return MIN_CARD_HEIGHT + 50;
+    
+    const dimensions = imageDimensions.get(imageUri);
+    if (!dimensions) return MIN_CARD_HEIGHT;
+    
+    // Calculate height to maintain aspect ratio when image takes full width
+    const aspectRatio = dimensions.height / dimensions.width;
+    const calculatedHeight = (width - 32) * aspectRatio; // 32 = horizontal padding
+    
+    // Clamp between min and max
+    return Math.max(MIN_CARD_HEIGHT, Math.min(MAX_CARD_HEIGHT, calculatedHeight));
+  };
+
+  const handleTopicChange = (index: number) => {
+    setSelectedTopicIndex(index);
+    flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
   };
 
   const handleLoadMore = () => {
-    if (!loading && hasMore) {
-      loadArticles(page + 1, searchQuery);
+    if (topics.length > 0 && !loadingArticles) {
+      const selectedTopic = topics[selectedTopicIndex];
+      const currentPage = page.get(selectedTopic.id) || 1;
+      const hasMorePages = hasMore.get(selectedTopic.id) ?? true;
+      
+      if (hasMorePages) {
+        loadArticlesForTopic(selectedTopic.id, currentPage + 1);
+      }
     }
   };
 
-  const handleSearch = (text: string) => {
-    setSearchQuery(text);
+  const handleArticlePress = (article: Article) => {
+    const selectedTopic = topics[selectedTopicIndex];
+    const articles = articlesByTopic.get(selectedTopic.id) || [];
     
-    // Clear existing timer
-    if (searchTimer) {
-      clearTimeout(searchTimer);
-    }
-
-    // Set new timer for debounced search
-    const newTimer = setTimeout(() => {
-      setPage(1);
-      setLoading(true);
-      loadArticles(1, text);
-    }, 500);
-
-    setSearchTimer(newTimer);
+    // Navigate to swipe screen with article context
+    router.push({
+      pathname: '/swipe',
+      params: {
+        articleId: article.id,
+        topicId: selectedTopic.id,
+        articleIds: JSON.stringify(articles.map(a => a.id)),
+      },
+    });
   };
 
   const formatTimestamp = (timestamp: number) => {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
+    const now = Date.now();
+    const diff = now - timestamp * 1000;
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     
-    if (diffHrs < 1) {
-      const diffMins = Math.floor(diffMs / (1000 * 60));
-      return `${diffMins}m ago`;
-    } else if (diffHrs < 24) {
-      return `${diffHrs}h ago`;
-    } else {
-      const diffDays = Math.floor(diffHrs / 24);
-      return `${diffDays}d ago`;
-    }
+    if (hours < 1) return 'Just now';
+    if (hours < 24) return `${hours}h ago`;
+    if (days < 7) return `${days}d ago`;
+    
+    const date = new Date(timestamp * 1000);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  const renderArticle = ({ item }: { item: Article }) => (
-    <TouchableOpacity
-      style={styles.articleCard}
-      onPress={() => router.push(`/article/${item.id}`)}
-      activeOpacity={0.7}
-    >
-      <View style={styles.articleHeader}>
-        <Text style={styles.provider}>{item.provider}</Text>
-        <Text style={styles.timestamp}>{formatTimestamp(item.timestamp)}</Text>
-      </View>
-      
-      <Text style={styles.title} numberOfLines={2}>
-        {item.title}
-      </Text>
-      
-      <Text style={styles.summary} numberOfLines={3}>
-        {item.summary}
-      </Text>
-      
-      {item.tickers.length > 0 && (
-        <View style={styles.tickersContainer}>
-          {item.tickers.slice(0, 3).map((ticker, index) => (
-            <View key={index} style={styles.tickerBadge}>
-              <Text style={styles.tickerText}>{ticker.symbol}</Text>
-            </View>
-          ))}
-          {item.tickers.length > 3 && (
-            <Text style={styles.moreTickers}>+{item.tickers.length - 3}</Text>
-          )}
-        </View>
-      )}
-    </TouchableOpacity>
-  );
+  const getTickerLogoUrl = (symbol: string) => {
+    return `https://img.logo.dev/ticker/${symbol}?token=pk_NquCcOJqSl2ZVNwLRKmfjw&format=png&theme=light&retina=true`;
+  };
 
-  const ListHeader = () => (
-    <View style={styles.headerContainer}>
-      <Text style={styles.screenTitle}>Market News</Text>
-      <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search articles..."
-          value={searchQuery}
-          onChangeText={handleSearch}
-          placeholderTextColor="#999"
-        />
-      </View>
-    </View>
-  );
+  const renderArticleCard = ({ item }: { item: Article }) => {
+    const cardHeight = getCardHeight(item.image_url);
 
-  const ListFooter = () => {
-    if (!hasMore) return null;
     return (
-      <View style={styles.footerLoader}>
-        <ActivityIndicator size="small" color="#007AFF" />
-      </View>
+      <TouchableOpacity
+        style={[styles.card, { height: cardHeight }]}
+        onPress={() => handleArticlePress(item)}
+        activeOpacity={0.95}
+      >
+        <View style={styles.imageContainer}>
+          <Image
+            source={item.image_url ? { uri: item.image_url } : require('../../assets/images/default.jpg')}
+            style={styles.cardImage}
+            resizeMode="cover"
+            defaultSource={require('../../assets/images/default.jpg')}
+          />
+          <LinearGradient
+            colors={[
+              'rgba(0, 0, 0, 0)',
+              'rgba(0, 0, 0, 0.3)',
+              'rgba(0, 0, 0, 0.7)',
+              'rgba(0, 0, 0, 0.9)',
+            ]}
+            locations={[0, 0.3, 0.7, 1]}
+            style={styles.gradientOverlay}
+          />
+          
+          {/* Card Content */}
+          <View style={styles.cardContent}>
+            {/* Title */}
+            <Text style={styles.cardTitle} numberOfLines={3}>
+              {item.title}
+            </Text>
+            
+            {/* Tickers */}
+            {item.tickers && item.tickers.length > 0 && (
+              <View style={styles.tickersRow}>
+                {item.tickers.slice(0, 3).map((ticker, index) => (
+                  <View key={index} style={styles.tickerBadge}>
+                    <Image
+                      source={{ uri: getTickerLogoUrl(ticker.symbol) }}
+                      style={styles.tickerIcon}
+                      resizeMode="contain"
+                    />
+                    <Text style={styles.tickerSymbol}>{ticker.symbol}</Text>
+                  </View>
+                ))}
+                {item.tickers.length > 3 && (
+                  <Text style={styles.moreTickersText}>
+                    +{item.tickers.length - 3}
+                  </Text>
+                )}
+              </View>
+            )}
+            
+            {/* Metadata */}
+            <View style={styles.cardMeta}>
+              <Text style={styles.metaText}>{item.provider}</Text>
+              <Text style={styles.metaDivider}> • </Text>
+              <Text style={styles.metaText}>{formatTimestamp(item.timestamp)}</Text>
+            </View>
+          </View>
+        </View>
+      </TouchableOpacity>
     );
   };
 
-  const ListEmpty = () => {
-    if (loading) return null;
+  const renderEmptyState = () => {
+    if (loadingTopics || loadingArticles) return null;
+    
+    if (topics.length === 1 && topics[0].id === 'for-you') {
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="bookmark-outline" size={64} color="#666" />
+          <Text style={styles.emptyTitle}>No Followed Topics</Text>
+          <Text style={styles.emptyText}>
+            Start following topics to see personalized news
+          </Text>
+          <TouchableOpacity
+            style={styles.exploreButton}
+            onPress={() => router.push('/swipe')}
+          >
+            <Text style={styles.exploreButtonText}>Explore Topics</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    
     return (
       <View style={styles.emptyContainer}>
-        <Ionicons name="newspaper-outline" size={64} color="#ccc" />
-        <Text style={styles.emptyText}>No articles found</Text>
+        <Ionicons name="newspaper-outline" size={64} color="#666" />
+        <Text style={styles.emptyTitle}>No Articles Yet</Text>
+        <Text style={styles.emptyText}>Check back soon for new articles</Text>
       </View>
     );
   };
 
-  if (loading && page === 1) {
+  if (loadingTopics) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
-          <Text style={styles.loadingText}>Loading articles...</Text>
+          <ActivityIndicator size="large" color="#000" />
         </View>
       </SafeAreaView>
     );
   }
 
+  const selectedTopic = topics[selectedTopicIndex];
+  const articles = selectedTopic ? articlesByTopic.get(selectedTopic.id) || [] : [];
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Discover</Text>
+      </View>
+
+      {/* Topics Tabs - Simple Text */}
+      {topics.length > 0 && (
+        <View style={styles.tabsContainer}>
+          <FlatList
+            horizontal
+            data={topics}
+            keyExtractor={(item, index) => `${item.id}-${index}`}
+            renderItem={({ item, index }) => (
+              <TouchableOpacity
+                style={styles.tab}
+                onPress={() => handleTopicChange(index)}
+              >
+                <Text
+                  style={[
+                    styles.tabText,
+                    selectedTopicIndex === index && styles.tabTextActive,
+                  ]}
+                >
+                  {item.name}
+                </Text>
+                {selectedTopicIndex === index && (
+                  <View style={styles.tabIndicator} />
+                )}
+              </TouchableOpacity>
+            )}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.tabsContent}
+          />
+        </View>
+      )}
+
+      {/* Articles List */}
       <FlatList
+        ref={flatListRef}
         data={articles}
-        renderItem={renderArticle}
-        keyExtractor={item => item.id}
-        ListHeaderComponent={ListHeader}
-        ListFooterComponent={ListFooter}
-        ListEmptyComponent={ListEmpty}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-        }
+        renderItem={renderArticleCard}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
-        contentContainerStyle={styles.listContent}
+        ListEmptyComponent={renderEmptyState}
+        ListFooterComponent={
+          loadingArticles && articles.length > 0 ? (
+            <View style={styles.footerLoader}>
+              <ActivityIndicator size="small" color="#000" />
+            </View>
+          ) : null
+        }
       />
     </SafeAreaView>
   );
@@ -217,127 +395,188 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#fff',
   },
-  headerContainer: {
+  header: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#fff',
+  },
+  headerTitle: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: '#000',
+  },
+  
+  // Tabs - Simple text style
+  tabsContainer: {
+    backgroundColor: '#fff',
+    paddingBottom: 8,
+  },
+  tabsContent: {
     paddingHorizontal: 16,
-    paddingBottom: 12,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    gap: 24,
   },
-  screenTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 12,
-    marginTop: 8,
+  tab: {
+    paddingVertical: 8,
+    position: 'relative',
   },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f0f0f0',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    height: 40,
-  },
-  searchIcon: {
-    marginRight: 8,
-  },
-  searchInput: {
-    flex: 1,
+  tabText: {
     fontSize: 16,
-    color: '#333',
-  },
-  listContent: {
-    flexGrow: 1,
-  },
-  articleCard: {
-    backgroundColor: '#fff',
-    marginHorizontal: 16,
-    marginVertical: 8,
-    padding: 16,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  articleHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  provider: {
-    fontSize: 12,
-    color: '#007AFF',
-    fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  timestamp: {
-    fontSize: 12,
+    fontWeight: '400',
     color: '#999',
   },
-  title: {
-    fontSize: 18,
+  tabTextActive: {
     fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
-    lineHeight: 24,
+    color: '#000',
   },
-  summary: {
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 20,
+  tabIndicator: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 2,
+    backgroundColor: '#000',
+    borderRadius: 1,
+  },
+  
+  // Articles List
+  listContent: {
+    padding: 16,
+    paddingBottom: 32,
+  },
+  
+  // Article Card - Image Background with Dynamic Height
+  card: {
+    borderRadius: 16,
+    marginBottom: 16,
+    overflow: 'hidden',
+    backgroundColor: '#1a1a1a',
+  },
+  imageContainer: {
+    width: '100%',
+    height: '100%',
+    position: 'relative',
+  },
+  cardImage: {
+    width: '100%',
+    height: '100%',
+  },
+  gradientOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  
+  // Card Content - Over gradient
+  cardContent: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 20,
+  },
+  cardTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#fff',
+    lineHeight: 28,
     marginBottom: 12,
   },
-  tickersContainer: {
+  
+  // Tickers
+  tickersRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     alignItems: 'center',
+    marginBottom: 12,
+    flexWrap: 'wrap',
   },
   tickerBadge: {
-    backgroundColor: '#e8f4fd',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginRight: 6,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 8,
     marginBottom: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
-  tickerText: {
-    fontSize: 12,
-    color: '#007AFF',
+  tickerIcon: {
+    width: 16,
+    height: 16,
+    marginRight: 6,
+    borderRadius: 8,
+  },
+  tickerSymbol: {
+    fontSize: 13,
     fontWeight: '600',
+    color: '#fff',
   },
-  moreTickers: {
-    fontSize: 12,
-    color: '#999',
+  moreTickersText: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.7)',
     marginLeft: 4,
   },
+  
+  // Metadata
+  cardMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  metaText: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  metaDivider: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.5)',
+  },
+  
+  // Empty States
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 100,
+    paddingHorizontal: 40,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#333',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyText: {
+    fontSize: 15,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  exploreButton: {
+    marginTop: 24,
+    backgroundColor: '#000',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 24,
+  },
+  exploreButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  
+  // Loading
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: '#666',
-  },
   footerLoader: {
     paddingVertical: 20,
     alignItems: 'center',
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingTop: 100,
-  },
-  emptyText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#999',
   },
 });
