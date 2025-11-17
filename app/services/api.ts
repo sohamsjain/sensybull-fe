@@ -1,7 +1,11 @@
 // app/services/api.ts
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 
-const API_BASE_URL = 'https://api.sensybull.com';
+console.log('Expo Config Extra:', Constants.expoConfig?.extra);
+console.log('API Base URL:', Constants.expoConfig?.extra?.apiBaseUrl);
+
+const API_BASE_URL = Constants.expoConfig?.extra?.apiBaseUrl;
 
 class ApiService {
   private token: string | null = null;

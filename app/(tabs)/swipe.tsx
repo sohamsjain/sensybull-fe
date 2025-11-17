@@ -1,7 +1,7 @@
 // app/(tabs)/swipe.tsx
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -50,6 +50,7 @@ export default function SwipeScreen() {
   const [followedTopics, setFollowedTopics] = useState<Set<string>>(new Set());
   const [question, setQuestion] = useState('');
   const [expandedSummaryId, setExpandedSummaryId] = useState<string | null>(null);
+  const router = useRouter();
 
   const flatListRef = useRef<FlatList>(null);
 
@@ -149,12 +150,34 @@ export default function SwipeScreen() {
   };
 
   const handleSendQuestion = () => {
-    if (question.trim()) {
-      // TODO: Implement question handling logic
-      console.log('Question sent:', question);
-      Alert.alert('Question Sent', `You asked: ${question}`);
-      setQuestion('');
+    if (!question.trim()) return;
+
+    // Get the current article
+    const currentArticle = articles[currentIndex];
+    if (!currentArticle) {
+      Alert.alert('Error', 'No article selected');
+      return;
     }
+
+    // Prepare article context
+    const articleContext = {
+      title: currentArticle.title,
+      summary: currentArticle.summary,
+      bullets: currentArticle.bullets || [],
+      tickers: currentArticle.tickers || [],
+    };
+
+    // Navigate to chat screen with context
+    router.push({
+      pathname: '/chat',
+      params: {
+        question: question.trim(),
+        context: JSON.stringify(articleContext),
+      },
+    });
+
+    // Clear the input
+    setQuestion('');
   };
 
   const toggleSummaryExpanded = (articleId: string) => {
@@ -304,7 +327,15 @@ export default function SwipeScreen() {
                   contentContainerStyle={styles.tickersScrollContainer}
                 >
                   {article.tickers.map((ticker, index) => (
-                    <View key={`${article.id}-ticker-${ticker.symbol}-${index}`} style={styles.tickerCardSmall}>
+                    <TouchableOpacity
+                      key={`${article.id}-ticker-${ticker.symbol}-${index}`}
+                      style={styles.tickerCardSmall}
+                      onPress={() => router.push({
+                        pathname: '/stock/[symbol]',
+                        params: { symbol: ticker.symbol }
+                      })}
+                      activeOpacity={0.7}
+                    >
                       <View style={styles.tickerLogoContainer}>
                         <Image
                           source={{ uri: getTickerLogoUrl(ticker.symbol) }}
@@ -319,14 +350,23 @@ export default function SwipeScreen() {
                           {ticker.name}
                         </Text>
                       </View>
-                    </View>
+                    </TouchableOpacity>
                   ))}
                 </ScrollView>
+
               ) : (
                 // Single ticker (normal layout)
                 <View style={styles.tickersSection}>
                   {article.tickers.map((ticker, index) => (
-                    <View key={`${article.id}-ticker-${ticker.symbol}-${index}`} style={styles.tickerCard}>
+                    <TouchableOpacity
+                      key={`${article.id}-ticker-${ticker.symbol}-${index}`}
+                      style={styles.tickerCard}
+                      onPress={() => router.push({
+                        pathname: '/stock/[symbol]',
+                        params: { symbol: ticker.symbol }
+                      })}
+                      activeOpacity={0.7}
+                    >
                       <View style={styles.tickerLogoContainer}>
                         <Image
                           source={{ uri: getTickerLogoUrl(ticker.symbol) }}
@@ -341,7 +381,7 @@ export default function SwipeScreen() {
                           {ticker.name}
                         </Text>
                       </View>
-                    </View>
+                    </TouchableOpacity>
                   ))}
                 </View>
               )

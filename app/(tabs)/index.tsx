@@ -19,7 +19,9 @@ import api from '../services/api';
 const { width, height } = Dimensions.get('window');
 const MIN_CARD_HEIGHT = 400;
 const MAX_CARD_HEIGHT = height * 0.8;
+const DEFAULT_IMAGE = require('../../assets/images/default.jpg');
 
+// --- Types
 interface Topic {
   id: string;
   name: string;
@@ -41,21 +43,21 @@ interface Article {
 
 export default function HomeScreen() {
   const router = useRouter();
-  const flatListRef = useRef<FlatList>(null);
-  
+  const flatListRef = useRef<FlatList<Article> | null>(null);
+
   // Topics state
   const [topics, setTopics] = useState<Topic[]>([]);
   const [selectedTopicIndex, setSelectedTopicIndex] = useState(0);
   const [loadingTopics, setLoadingTopics] = useState(true);
-  const FOR_YOU_TAB = { id: 'for-you', name: 'For You' };
-  
+  const FOR_YOU_TAB = { id: 'for-you', name: 'Watchlist' };
+
   // Articles state
   const [articlesByTopic, setArticlesByTopic] = useState<Map<string, Article[]>>(new Map());
   const [loadingArticles, setLoadingArticles] = useState(false);
   const [page, setPage] = useState<Map<string, number>>(new Map());
   const [hasMore, setHasMore] = useState<Map<string, boolean>>(new Map());
-  
-  // Image dimensions state
+
+  // Image dimensions state keyed by imageUri string. For default (local) images we don't fetch dims.
   const [imageDimensions, setImageDimensions] = useState<Map<string, { width: number; height: number }>>(new Map());
 
   // Load topics on mount
@@ -73,24 +75,27 @@ export default function HomeScreen() {
     }
   }, [selectedTopicIndex, topics]);
 
-  // Load image dimensions for visible articles
+  // Load image dimensions for visible articles (ticker logos)
   useEffect(() => {
     const selectedTopic = topics[selectedTopicIndex];
     if (selectedTopic) {
       const articles = articlesByTopic.get(selectedTopic.id) || [];
-      articles.slice(0, 10).forEach(article => {
-        if (article.image_url && !imageDimensions.has(article.image_url)) {
-          getImageDimensions(article.image_url);
+      // only attempt to fetch dimensions for the first N articles to avoid spamming requests
+      articles.slice(0, 12).forEach(article => {
+        const imageUri = getTickerLogoUriForArticle(article);
+        if (imageUri && !imageDimensions.has(imageUri)) {
+          getImageDimensions(imageUri);
         }
       });
     }
   }, [selectedTopicIndex, articlesByTopic]);
 
+  // --- API loaders
   const loadFollowedTopics = async () => {
     try {
       setLoadingTopics(true);
       const response = await api.getFollowedTopics();
-      
+
       if (response.topics && response.topics.length > 0) {
         setTopics([FOR_YOU_TAB, ...response.topics]);
       } else {
@@ -106,24 +111,24 @@ export default function HomeScreen() {
   const loadArticlesForTopic = async (topicId: string, pageNum: number) => {
     try {
       setLoadingArticles(true);
-      
+
       let response;
       if (topicId === 'for-you') {
         response = await api.getArticles({ page: pageNum, per_page: 20 });
       } else {
         response = await api.getTopicArticles(topicId, pageNum, 20);
       }
-      
+
       const existingArticles = articlesByTopic.get(topicId) || [];
       const existingIds = new Set(existingArticles.map(a => a.id));
-      
+
       // Deduplicate: only add articles we don't already have
       const newUniqueArticles = response.articles.filter((a: Article) => !existingIds.has(a.id));
-      
-      const newArticles = pageNum === 1 
-        ? response.articles 
+
+      const newArticles = pageNum === 1
+        ? response.articles
         : [...existingArticles, ...newUniqueArticles];
-      
+
       setArticlesByTopic(prev => new Map(prev).set(topicId, newArticles));
       setPage(prev => new Map(prev).set(topicId, pageNum));
       setHasMore(prev => new Map(prev).set(topicId, response.pagination.has_next));
@@ -134,43 +139,62 @@ export default function HomeScreen() {
     }
   };
 
+  // --- Image helpers
+  // Build the high-res square JPEG ticker logo URL
+  const getTickerLogoUrl = (symbol: string) => {
+    // Use the first-token format you provided; adjust token if needed.
+    const token = 'pk_NquCcOJqSl2ZVNwLRKmfjw';
+    // high-res square jpeg
+    return `https://img.logo.dev/ticker/${encodeURIComponent(symbol)}?token=${token}&size=300&square=true&retina=true`;
+  };
+
+  // For an article, return the ticker logo URI (first ticker) or undefined if none.
+  const getTickerLogoUriForArticle = (article: Article): string | undefined => {
+    if (article.tickers && article.tickers.length > 0 && article.tickers[0].symbol) {
+      return getTickerLogoUrl(article.tickers[0].symbol);
+    }
+    return undefined;
+  };
+
+  // Fetch remote image dimensions (works for remote images only)
   const getImageDimensions = (imageUri: string) => {
     if (imageDimensions.has(imageUri)) return;
 
     Image.getSize(
       imageUri,
       (imgWidth, imgHeight) => {
-        setImageDimensions(prev => new Map(prev).set(imageUri, { 
-          width: imgWidth, 
-          height: imgHeight 
+        setImageDimensions(prev => new Map(prev).set(imageUri, {
+          width: imgWidth,
+          height: imgHeight
         }));
       },
       (error) => {
-        console.error('Error getting image size:', error);
-        // Set default dimensions on error
-        setImageDimensions(prev => new Map(prev).set(imageUri, { 
-          width: width, 
-          height: MIN_CARD_HEIGHT 
+        console.error('Error getting image size for', imageUri, error);
+        // Fallback: set a conservative default so card remains usable
+        setImageDimensions(prev => new Map(prev).set(imageUri, {
+          width: width,
+          height: MIN_CARD_HEIGHT
         }));
       }
     );
   };
 
-  const getCardHeight = (imageUri?: string): number => {
-    // Use default height when no image URL is provided
+  // Decide card height: if there's a ticker logo uri, use its aspect ratio; otherwise use default
+  const getCardHeight = (article: Article): number => {
+    const imageUri = getTickerLogoUriForArticle(article);
+    // If no ticker logo, use default height (local image)
     if (!imageUri) return MIN_CARD_HEIGHT + 50;
-    
+
     const dimensions = imageDimensions.get(imageUri);
     if (!dimensions) return MIN_CARD_HEIGHT;
-    
-    // Calculate height to maintain aspect ratio when image takes full width
+
     const aspectRatio = dimensions.height / dimensions.width;
-    const calculatedHeight = (width - 32) * aspectRatio; // 32 = horizontal padding
-    
-    // Clamp between min and max
+    const calculatedHeight = (width - 32) * aspectRatio; // subtract horizontal padding
+
     return Math.max(MIN_CARD_HEIGHT, Math.min(MAX_CARD_HEIGHT, calculatedHeight));
   };
 
+  // --- Handlers
   const handleTopicChange = (index: number) => {
     setSelectedTopicIndex(index);
     flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
@@ -181,7 +205,7 @@ export default function HomeScreen() {
       const selectedTopic = topics[selectedTopicIndex];
       const currentPage = page.get(selectedTopic.id) || 1;
       const hasMorePages = hasMore.get(selectedTopic.id) ?? true;
-      
+
       if (hasMorePages) {
         loadArticlesForTopic(selectedTopic.id, currentPage + 1);
       }
@@ -191,8 +215,7 @@ export default function HomeScreen() {
   const handleArticlePress = (article: Article) => {
     const selectedTopic = topics[selectedTopicIndex];
     const articles = articlesByTopic.get(selectedTopic.id) || [];
-    
-    // Navigate to swipe screen with article context
+
     router.push({
       pathname: '/swipe',
       params: {
@@ -208,21 +231,19 @@ export default function HomeScreen() {
     const diff = now - timestamp * 1000;
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    
+
     if (hours < 1) return 'Just now';
     if (hours < 24) return `${hours}h ago`;
     if (days < 7) return `${days}d ago`;
-    
+
     const date = new Date(timestamp * 1000);
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  const getTickerLogoUrl = (symbol: string) => {
-    return `https://img.logo.dev/ticker/${symbol}?token=pk_NquCcOJqSl2ZVNwLRKmfjw&format=png&theme=light&retina=true`;
-  };
-
+  // --- Renderers
   const renderArticleCard = ({ item }: { item: Article }) => {
-    const cardHeight = getCardHeight(item.image_url);
+    const cardHeight = getCardHeight(item);
+    const logoUri = getTickerLogoUriForArticle(item);
 
     return (
       <TouchableOpacity
@@ -231,12 +252,22 @@ export default function HomeScreen() {
         activeOpacity={0.95}
       >
         <View style={styles.imageContainer}>
-          <Image
-            source={item.image_url ? { uri: item.image_url } : require('../../assets/images/default.jpg')}
-            style={styles.cardImage}
-            resizeMode="cover"
-            defaultSource={require('../../assets/images/default.jpg')}
-          />
+          {/* If there is a ticker logo, use it, otherwise fall back to local default image */}
+          {logoUri ? (
+            <Image
+              source={{ uri: logoUri }}
+              style={styles.cardImage}
+              resizeMode="cover"
+              // defaultSource works only with local images on Android; keep local fallback below
+            />
+          ) : (
+            <Image
+              source={DEFAULT_IMAGE}
+              style={styles.cardImage}
+              resizeMode="cover"
+            />
+          )}
+
           <LinearGradient
             colors={[
               'rgba(0, 0, 0, 0)',
@@ -247,14 +278,14 @@ export default function HomeScreen() {
             locations={[0, 0.3, 0.7, 1]}
             style={styles.gradientOverlay}
           />
-          
+
           {/* Card Content */}
           <View style={styles.cardContent}>
             {/* Title */}
             <Text style={styles.cardTitle} numberOfLines={3}>
               {item.title}
             </Text>
-            
+
             {/* Tickers */}
             {item.tickers && item.tickers.length > 0 && (
               <View style={styles.tickersRow}>
@@ -275,7 +306,7 @@ export default function HomeScreen() {
                 )}
               </View>
             )}
-            
+
             {/* Metadata */}
             <View style={styles.cardMeta}>
               <Text style={styles.metaText}>{item.provider}</Text>
@@ -290,7 +321,7 @@ export default function HomeScreen() {
 
   const renderEmptyState = () => {
     if (loadingTopics || loadingArticles) return null;
-    
+
     if (topics.length === 1 && topics[0].id === 'for-you') {
       return (
         <View style={styles.emptyContainer}>
@@ -308,7 +339,7 @@ export default function HomeScreen() {
         </View>
       );
     }
-    
+
     return (
       <View style={styles.emptyContainer}>
         <Ionicons name="newspaper-outline" size={64} color="#666" />
@@ -333,10 +364,6 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Discover</Text>
-      </View>
 
       {/* Topics Tabs - Simple Text */}
       {topics.length > 0 && (
@@ -407,7 +434,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#000',
   },
-  
+
   // Tabs - Simple text style
   tabsContainer: {
     backgroundColor: '#fff',
@@ -439,13 +466,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
     borderRadius: 1,
   },
-  
+
   // Articles List
   listContent: {
     padding: 16,
     paddingBottom: 32,
   },
-  
+
   // Article Card - Image Background with Dynamic Height
   card: {
     borderRadius: 16,
@@ -469,7 +496,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
-  
+
   // Card Content - Over gradient
   cardContent: {
     position: 'absolute',
@@ -485,7 +512,7 @@ const styles = StyleSheet.create({
     lineHeight: 28,
     marginBottom: 12,
   },
-  
+
   // Tickers
   tickersRow: {
     flexDirection: 'row',
@@ -521,7 +548,7 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.7)',
     marginLeft: 4,
   },
-  
+
   // Metadata
   cardMeta: {
     flexDirection: 'row',
@@ -535,7 +562,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: 'rgba(255, 255, 255, 0.5)',
   },
-  
+
   // Empty States
   emptyContainer: {
     alignItems: 'center',
@@ -568,7 +595,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#fff',
   },
-  
+
   // Loading
   loadingContainer: {
     flex: 1,
