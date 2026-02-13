@@ -60,7 +60,6 @@ export default {
       eas: {
         projectId: "09bc2f93-b518-4358-8ca9-07ded68f461e"
       },
-      groqApiKey: process.env.GROQ_API_KEY,
       apiBaseUrl: process.env.API_BASE_URL,
     },
     owner: "sensybull",
