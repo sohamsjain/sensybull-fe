@@ -9,12 +9,19 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "build:dev": "eas build --profile development --platform ios",
+    "build:dev:ios": "eas build --profile development --platform ios",
+    "build:dev:android": "eas build --profile development --platform android",
     "build:dev-sim": "eas build --profile development-simulator --platform ios",
-    "build:preview": "eas build --profile preview --platform ios",
-    "build:production": "eas build --profile production --platform ios",
+    "build:preview:ios": "eas build --profile preview --platform ios",
+    "build:preview:android": "eas build --profile preview --platform android",
+    "build:preview:all": "eas build --profile preview --platform all",
+    "build:production:ios": "eas build --profile production --platform ios",
+    "build:production:android": "eas build --profile production --platform android",
+    "build:production:all": "eas build --profile production --platform all",
     "submit:ios": "eas submit --platform ios --profile production",
-    "build:submit:ios": "eas build --profile production --platform ios --auto-submit"
+    "submit:android": "eas submit --platform android --profile production",
+    "build:submit:ios": "eas build --profile production --platform ios --auto-submit",
+    "build:submit:android": "eas build --profile production --platform android --auto-submit"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",

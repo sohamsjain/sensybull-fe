@@ -29,7 +29,8 @@ export default {
       },
       edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false,
-      package: "com.sohamsjain.MyApp"
+      package: "com.sensybull.app",
+      versionCode: 1
     },
     web: {
       output: "static",
