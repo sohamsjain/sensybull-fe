@@ -12,7 +12,7 @@ export default {
     newArchEnabled: true,
     ios: {
       supportsTablet: true,
-      bundleIdentifier: "com.sohamsjain.sensybull",
+      bundleIdentifier: "com.sensybull.app",
       buildNumber: "1",
       infoPlist: {
         NSCameraUsageDescription: "Sensybull needs access to your camera to set your profile photo.",
