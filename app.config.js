@@ -58,18 +58,15 @@ export default {
     extra: {
       router: {},
       eas: {
-        projectId: "a702a476-05f5-4fa4-ade6-cd3c9534f064"
+        // Run `eas init` to generate a new project ID under the new account
       },
-      // Add your environment variables here
       groqApiKey: process.env.GROQ_API_KEY,
       apiBaseUrl: process.env.API_BASE_URL,
     },
-    owner: "sohamsjain",
+    // owner: Set this to your new Expo username after running `eas whoami`
     runtimeVersion: {
       policy: "appVersion"
     },
-    updates: {
-      url: "https://u.expo.dev/a702a476-05f5-4fa4-ade6-cd3c9534f064"
-    }
+    // updates.url will be set after `eas init` generates a new project ID
   }
 };
