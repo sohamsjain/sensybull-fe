@@ -7,11 +7,18 @@ export default {
     version: "1.0.0",
     orientation: "portrait",
     icon: "./assets/images/icon.png",
-    scheme: "myapp",
+    scheme: "sensybull",
     userInterfaceStyle: "automatic",
     newArchEnabled: true,
     ios: {
-      supportsTablet: true
+      supportsTablet: true,
+      bundleIdentifier: "com.sohamsjain.sensybull",
+      buildNumber: "1",
+      infoPlist: {
+        NSCameraUsageDescription: "Sensybull needs access to your camera to set your profile photo.",
+        NSPhotoLibraryUsageDescription: "Sensybull needs access to your photo library to set your profile photo.",
+        ITSAppUsesNonExemptEncryption: false
+      }
     },
     android: {
       adaptiveIcon: {
