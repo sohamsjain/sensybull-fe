@@ -13,7 +13,7 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.sensybull.app",
-      buildNumber: "1",
+      usesAppleSignIn: true,
       infoPlist: {
         NSCameraUsageDescription: "Sensybull needs access to your camera to set your profile photo.",
         NSPhotoLibraryUsageDescription: "Sensybull needs access to your photo library to set your profile photo.",
@@ -49,7 +49,9 @@ export default {
             backgroundColor: "#000000"
           }
         }
-      ]
+      ],
+      "expo-apple-authentication",
+      "expo-notifications"
     ],
     experiments: {
       typedRoutes: true,
