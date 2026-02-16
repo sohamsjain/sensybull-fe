@@ -21,6 +21,9 @@ expo-env.d.ts
 # Metro
 .metro-health-check*
 
+# Google Play service account key
+google-service-account-key.json
+
 # debug
 npm-debug.*
 yarn-debug.*
