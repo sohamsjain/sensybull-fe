@@ -253,6 +253,14 @@ export default function SwipeScreen() {
               style={styles.gradientOverlay}
             />
 
+            {/* Back Button - Fixed Top Left */}
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => router.back()}
+            >
+              <Ionicons name="arrow-back" size={18} color="#000" />
+            </TouchableOpacity>
+
             {/* Floating Action Buttons - Fixed Bottom Right */}
             <View style={styles.floatingActionButtons}>
               <TouchableOpacity
@@ -611,6 +619,25 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+  },
+
+  // Back Button - Top Left
+  backButton: {
+    position: 'absolute',
+    top: 24,
+    left: 20,
+    zIndex: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
   },
 
   // Floating Action Buttons
