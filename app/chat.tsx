@@ -27,10 +27,15 @@ export default function ChatScreen() {
     const params = useLocalSearchParams();
     const scrollViewRef = useRef<ScrollView>(null);
 
-    // Parse article context from params
-    const articleContext: ArticleContext | undefined = params.context
-        ? JSON.parse(params.context as string)
-        : undefined;
+    // Parse article context from params — guard against malformed deep-link params
+    let articleContext: ArticleContext | undefined;
+    try {
+        articleContext = params.context
+            ? JSON.parse(params.context as string)
+            : undefined;
+    } catch {
+        articleContext = undefined;
+    }
 
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [inputText, setInputText] = useState('');
@@ -38,6 +43,8 @@ export default function ChatScreen() {
     const [initialQuestion, setInitialQuestion] = useState(params.question as string || '');
 
     useEffect(() => {
+        let mounted = true;
+
         // Add welcome message
         const welcomeMessage: ChatMessage = {
             id: Date.now().toString(),
@@ -50,9 +57,10 @@ export default function ChatScreen() {
         setMessages([welcomeMessage]);
 
         // If there's an initial question, send it automatically
+        let initialTimer: ReturnType<typeof setTimeout> | undefined;
         if (initialQuestion) {
-            setTimeout(() => {
-                handleSendMessage(initialQuestion);
+            initialTimer = setTimeout(() => {
+                if (mounted) handleSendMessage(initialQuestion);
             }, 500);
         }
 
@@ -67,6 +75,8 @@ export default function ChatScreen() {
         );
 
         return () => {
+            mounted = false;
+            clearTimeout(initialTimer);
             keyboardDidShowListener.remove();
         };
     }, []);

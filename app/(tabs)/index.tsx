@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import api from '../services/api';
+import { LOGO_DEV_TOKEN } from '../constants/theme';
 
 const { width, height } = Dimensions.get('window');
 const MIN_CARD_HEIGHT = 400;
@@ -77,6 +78,7 @@ export default function HomeScreen() {
 
   // Load image dimensions for visible articles (ticker logos)
   useEffect(() => {
+    let mounted = true;
     const selectedTopic = topics[selectedTopicIndex];
     if (selectedTopic) {
       const articles = articlesByTopic.get(selectedTopic.id) || [];
@@ -84,10 +86,23 @@ export default function HomeScreen() {
       articles.slice(0, 12).forEach(article => {
         const imageUri = getTickerLogoUriForArticle(article);
         if (imageUri && !imageDimensions.has(imageUri)) {
-          getImageDimensions(imageUri);
+          Image.getSize(
+            imageUri,
+            (imgWidth, imgHeight) => {
+              if (mounted) {
+                setImageDimensions(prev => new Map(prev).set(imageUri, { width: imgWidth, height: imgHeight }));
+              }
+            },
+            () => {
+              if (mounted) {
+                setImageDimensions(prev => new Map(prev).set(imageUri, { width: width, height: MIN_CARD_HEIGHT }));
+              }
+            }
+          );
         }
       });
     }
+    return () => { mounted = false; };
   }, [selectedTopicIndex, articlesByTopic]);
 
   // --- API loaders
@@ -142,10 +157,7 @@ export default function HomeScreen() {
   // --- Image helpers
   // Build the high-res square JPEG ticker logo URL
   const getTickerLogoUrl = (symbol: string) => {
-    // Use the first-token format you provided; adjust token if needed.
-    const token = 'pk_NquCcOJqSl2ZVNwLRKmfjw';
-    // high-res square jpeg
-    return `https://img.logo.dev/ticker/${encodeURIComponent(symbol)}?token=${token}&size=300&square=true&retina=true`;
+    return `https://img.logo.dev/ticker/${encodeURIComponent(symbol)}?token=${LOGO_DEV_TOKEN}&size=300&square=true&retina=true`;
   };
 
   // For an article, return the ticker logo URI (first ticker) or undefined if none.
@@ -154,29 +166,6 @@ export default function HomeScreen() {
       return getTickerLogoUrl(article.tickers[0].symbol);
     }
     return undefined;
-  };
-
-  // Fetch remote image dimensions (works for remote images only)
-  const getImageDimensions = (imageUri: string) => {
-    if (imageDimensions.has(imageUri)) return;
-
-    Image.getSize(
-      imageUri,
-      (imgWidth, imgHeight) => {
-        setImageDimensions(prev => new Map(prev).set(imageUri, {
-          width: imgWidth,
-          height: imgHeight
-        }));
-      },
-      (error) => {
-        console.error('Error getting image size for', imageUri, error);
-        // Fallback: set a conservative default so card remains usable
-        setImageDimensions(prev => new Map(prev).set(imageUri, {
-          width: width,
-          height: MIN_CARD_HEIGHT
-        }));
-      }
-    );
   };
 
   // Decide card height: if there's a ticker logo uri, use its aspect ratio; otherwise use default

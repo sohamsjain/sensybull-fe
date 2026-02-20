@@ -76,64 +76,6 @@ export default function StockDetailScreen() {
     }
   }, [symbol]);
 
-  const generateMockPriceData = (articles: Article[], basePrice: number): PricePoint[] => {
-    if (articles.length === 0) {
-      // Generate 30 days of data if no articles
-      const now = Date.now() / 1000;
-      const thirtyDaysAgo = now - (30 * 24 * 60 * 60);
-      const data: PricePoint[] = [];
-      
-      for (let i = 0; i < 30; i++) {
-        const timestamp = thirtyDaysAgo + (i * 24 * 60 * 60);
-        const variance = (Math.random() - 0.5) * (basePrice * 0.05);
-        const price = basePrice + variance + (i * 0.5); // Slight upward trend
-        data.push({ timestamp, price });
-      }
-      
-      return data;
-    }
-
-    // Generate data from oldest article to now
-    const oldestTimestamp = Math.min(...articles.map(a => a.timestamp));
-    const newestTimestamp = Math.max(...articles.map(a => a.timestamp));
-    const now = Date.now() / 1000;
-    
-    const startTime = oldestTimestamp - (7 * 24 * 60 * 60); // Start 7 days before oldest article
-    const endTime = Math.max(newestTimestamp, now);
-    const duration = endTime - startTime;
-    const numPoints = 100;
-    const interval = duration / numPoints;
-
-    const data: PricePoint[] = [];
-    let currentPrice = basePrice;
-
-    for (let i = 0; i <= numPoints; i++) {
-      const timestamp = startTime + (i * interval);
-      
-      // Check if there's an article near this timestamp
-      const nearbyArticle = articles.find(a => 
-        Math.abs(a.timestamp - timestamp) < interval
-      );
-
-      if (nearbyArticle) {
-        // Simulate market reaction to news
-        const reaction = (Math.random() - 0.4) * (basePrice * 0.03);
-        currentPrice += reaction;
-      } else {
-        // Normal market fluctuation
-        const variance = (Math.random() - 0.5) * (basePrice * 0.01);
-        currentPrice += variance;
-      }
-
-      // Keep price within reasonable bounds
-      currentPrice = Math.max(basePrice * 0.8, Math.min(basePrice * 1.2, currentPrice));
-      
-      data.push({ timestamp, price: currentPrice });
-    }
-
-    return data;
-  };
-
   const loadTickerData = async () => {
     try {
       const response = await api.getTicker(symbol);
@@ -165,11 +107,6 @@ export default function StockDetailScreen() {
       
       const newArticles = pageNum === 1 ? response.articles : [...articles, ...response.articles];
       setArticles(newArticles);
-
-      // Generate mock price data based on articles
-      const basePrice = ticker?.last_price || 150 + Math.random() * 100;
-      const mockData = generateMockPriceData(newArticles, basePrice);
-      setPriceData(mockData);
 
       setPage(pageNum);
       setHasMore(response.articles.length === 20);

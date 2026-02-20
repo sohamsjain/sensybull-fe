@@ -21,6 +21,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import api from '../services/api';
+import { getTickerLogoUrl } from '../constants/theme';
 
 const { width, height } = Dimensions.get('window');
 
@@ -118,11 +119,6 @@ export default function SwipeScreen() {
     } catch (error) {
       console.error('Error loading followed topics:', error);
     }
-  };
-
-  // Get ticker logo URL
-  const getTickerLogoUrl = (symbol: string): string => {
-    return `https://img.logo.dev/ticker/${symbol}?token=pk_NquCcOJqSl2ZVNwLRKmfjw&format=png&theme=light&retina=true`;
   };
 
   const handleToggleFollowTopic = async (topicId: string) => {
@@ -255,12 +251,6 @@ export default function SwipeScreen() {
 
             {/* Floating Action Buttons - Fixed Bottom Right */}
             <View style={styles.floatingActionButtons}>
-              <TouchableOpacity
-                style={styles.floatingActionButton}
-                onPress={() => console.log('Bookmark', article.id)}
-              >
-                <Ionicons name="bookmark-outline" size={18} color="#000" />
-              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.floatingActionButton}
                 onPress={() => handleOpenArticle(article.provider_url)}

@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import api from '../services/api';
+import { getTickerLogoUrl } from '../constants/theme';
 
 interface Ticker {
     id: string;
@@ -110,18 +111,9 @@ export default function WatchlistScreen() {
         );
     };
 
-    const getTickerLogoUrl = (symbol: string): string => {
-        return `https://img.logo.dev/ticker/${symbol}?token=pk_NquCcOJqSl2ZVNwLRKmfjw&format=png&theme=light&retina=true`;
-    };
-
     const formatPrice = (price?: number): string => {
-        const shouldRandomize = price == null || price === 0;
-
-        const value = shouldRandomize
-            ? 150 + Math.random() * 150   // random between 150–300
-            : price;
-
-        return `$${value.toFixed(2)}`;
+        if (price == null || price === 0) return 'N/A';
+        return `$${price.toFixed(2)}`;
     };
 
 

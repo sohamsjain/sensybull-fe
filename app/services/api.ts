@@ -2,10 +2,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 
-console.log('Expo Config Extra:', Constants.expoConfig?.extra);
-console.log('API Base URL:', Constants.expoConfig?.extra?.apiBaseUrl);
+const API_BASE_URL: string | undefined = Constants.expoConfig?.extra?.apiBaseUrl;
 
-const API_BASE_URL = Constants.expoConfig?.extra?.apiBaseUrl;
+if (!API_BASE_URL) {
+  console.warn(
+    '[api] API_BASE_URL is not configured. Set EXPO_PUBLIC_API_BASE_URL in your .env file.'
+  );
+}
 
 class ApiService {
   private token: string | null = null;
