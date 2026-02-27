@@ -3,19 +3,20 @@ import { Ionicons } from '@expo/vector-icons';
 import { Link, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
+import { colors, radius, spacing } from '../theme';
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -32,12 +33,10 @@ export default function RegisterScreen() {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
-
     if (password !== confirmPassword) {
       Alert.alert('Error', 'Passwords do not match');
       return;
     }
-
     if (password.length < 6) {
       Alert.alert('Error', 'Password must be at least 6 characters');
       return;
@@ -60,23 +59,24 @@ export default function RegisterScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
       >
-        <ScrollView 
+        <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.header}>
-            <Ionicons name="trending-up" size={48} color="#007AFF" />
-            <Text style={styles.title}>Create Account</Text>
-            <Text style={styles.subtitle}>Join SensyBull today</Text>
+          {/* Brand */}
+          <View style={styles.brand}>
+            <Text style={styles.logo}>sensybull</Text>
+            <Text style={styles.tagline}>Create your account</Text>
           </View>
 
+          {/* Form */}
           <View style={styles.form}>
             <View style={styles.inputContainer}>
-              <Ionicons name="person-outline" size={20} color="#666" style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="Full Name"
-                placeholderTextColor="#999"
+                placeholderTextColor={colors.textTertiary}
                 value={name}
                 onChangeText={setName}
                 autoCapitalize="words"
@@ -85,11 +85,10 @@ export default function RegisterScreen() {
             </View>
 
             <View style={styles.inputContainer}>
-              <Ionicons name="mail-outline" size={20} color="#666" style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="Email"
-                placeholderTextColor="#999"
+                placeholderTextColor={colors.textTertiary}
                 value={email}
                 onChangeText={setEmail}
                 autoCapitalize="none"
@@ -99,11 +98,10 @@ export default function RegisterScreen() {
             </View>
 
             <View style={styles.inputContainer}>
-              <Ionicons name="lock-closed-outline" size={20} color="#666" style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="Password"
-                placeholderTextColor="#999"
+                placeholderTextColor={colors.textTertiary}
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
@@ -111,22 +109,22 @@ export default function RegisterScreen() {
               />
               <TouchableOpacity
                 onPress={() => setShowPassword(!showPassword)}
-                style={styles.eyeIcon}
+                style={styles.eyeButton}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
                 <Ionicons
                   name={showPassword ? 'eye-outline' : 'eye-off-outline'}
-                  size={20}
-                  color="#666"
+                  size={18}
+                  color={colors.textTertiary}
                 />
               </TouchableOpacity>
             </View>
 
             <View style={styles.inputContainer}>
-              <Ionicons name="lock-closed-outline" size={20} color="#666" style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="Confirm Password"
-                placeholderTextColor="#999"
+                placeholderTextColor={colors.textTertiary}
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 secureTextEntry={!showPassword}
@@ -135,25 +133,27 @@ export default function RegisterScreen() {
             </View>
 
             <TouchableOpacity
-              style={[styles.registerButton, loading && styles.disabledButton]}
+              style={[styles.button, loading && styles.buttonDisabled]}
               onPress={handleRegister}
               disabled={loading}
+              activeOpacity={0.8}
             >
               {loading ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={colors.bg} />
               ) : (
-                <Text style={styles.registerButtonText}>Create Account</Text>
+                <Text style={styles.buttonText}>Create Account</Text>
               )}
             </TouchableOpacity>
+          </View>
 
-            <View style={styles.loginContainer}>
-              <Text style={styles.loginText}>Already have an account? </Text>
-              <Link href="/(auth)/login" asChild>
-                <TouchableOpacity disabled={loading}>
-                  <Text style={styles.loginLink}>Sign In</Text>
-                </TouchableOpacity>
-              </Link>
-            </View>
+          {/* Footer */}
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>Already have an account? </Text>
+            <Link href="/(auth)/login" asChild>
+              <TouchableOpacity disabled={loading}>
+                <Text style={styles.footerLink}>Sign In</Text>
+              </TouchableOpacity>
+            </Link>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -164,84 +164,82 @@ export default function RegisterScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.bg,
   },
   keyboardView: {
     flex: 1,
   },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 30,
+    paddingHorizontal: spacing.xxxl,
     justifyContent: 'center',
-    paddingVertical: 20,
+    paddingVertical: spacing.xl,
   },
-  header: {
+  brand: {
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: 48,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
-    marginTop: 12,
+  logo: {
+    fontSize: 36,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    letterSpacing: -1,
   },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    marginTop: 4,
+  tagline: {
+    fontSize: 15,
+    color: colors.textTertiary,
+    marginTop: spacing.sm,
   },
   form: {
-    width: '100%',
+    gap: spacing.md,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-    borderRadius: 12,
-    marginBottom: 16,
-    paddingHorizontal: 16,
-    height: 50,
-  },
-  inputIcon: {
-    marginRight: 10,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.lg,
+    height: 52,
   },
   input: {
     flex: 1,
     fontSize: 16,
-    color: '#333',
+    color: colors.textPrimary,
   },
-  eyeIcon: {
-    padding: 4,
+  eyeButton: {
+    padding: spacing.xs,
   },
-  registerButton: {
-    backgroundColor: '#007AFF',
-    borderRadius: 12,
-    height: 50,
+  button: {
+    backgroundColor: colors.textPrimary,
+    borderRadius: radius.md,
+    height: 52,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 24,
+    marginTop: spacing.sm,
   },
-  disabledButton: {
-    opacity: 0.7,
+  buttonDisabled: {
+    opacity: 0.5,
   },
-  registerButtonText: {
-    color: '#fff',
-    fontSize: 18,
+  buttonText: {
+    color: colors.bg,
+    fontSize: 17,
     fontWeight: '600',
   },
-  loginContainer: {
+  footer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+    marginTop: spacing.xxxl,
   },
-  loginText: {
+  footerText: {
     fontSize: 14,
-    color: '#666',
+    color: colors.textTertiary,
   },
-  loginLink: {
+  footerLink: {
     fontSize: 14,
-    color: '#007AFF',
+    color: colors.accent,
     fontWeight: '600',
   },
 });

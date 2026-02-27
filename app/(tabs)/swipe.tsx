@@ -1,4 +1,4 @@
-// app/(tabs)/swipe.tsx
+// app/(tabs)/swipe.tsx — Immersive Article Reader
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -17,10 +17,11 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import api from '../services/api';
+import { colors, formatRelativeTime, getTickerLogoUrl, radius, spacing } from '../theme';
 
 const { width, height } = Dimensions.get('window');
 
@@ -40,7 +41,8 @@ interface Article {
 
 export default function SwipeScreen() {
   const params = useLocalSearchParams();
-  const { articleId, topicId, articleIds } = params;
+  const { articleId, topicId } = params;
+  const router = useRouter();
 
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,40 +52,27 @@ export default function SwipeScreen() {
   const [followedTopics, setFollowedTopics] = useState<Set<string>>(new Set());
   const [question, setQuestion] = useState('');
   const [expandedSummaryId, setExpandedSummaryId] = useState<string | null>(null);
-  const router = useRouter();
 
   const flatListRef = useRef<FlatList>(null);
 
   const loadArticles = useCallback(async (pageNum = 1) => {
     try {
-      if (pageNum === 1) {
-        setLoading(true);
-      } else {
-        setFetchingMore(true);
-      }
+      if (pageNum === 1) setLoading(true);
+      else setFetchingMore(true);
 
       let response;
-
-      // If we have a topicId from params, load that topic's articles
       if (topicId && topicId !== 'for-you' && pageNum === 1) {
         response = await api.getTopicArticles(topicId as string, pageNum, 20);
       } else {
-        // Default: load all articles
-        response = await api.getArticles({
-          page: pageNum,
-          per_page: 20,
-        });
+        response = await api.getArticles({ page: pageNum, per_page: 20 });
       }
 
       if (pageNum === 1) {
         setArticles(response.articles);
-
-        // If we have a specific articleId, find its index and scroll to it
         if (articleId) {
           const index = response.articles.findIndex((a: Article) => a.id === articleId);
           if (index !== -1) {
             setCurrentIndex(index);
-            // Use setTimeout to ensure FlatList is mounted
             setTimeout(() => {
               flatListRef.current?.scrollToIndex({ index, animated: false });
             }, 100);
@@ -92,7 +81,6 @@ export default function SwipeScreen() {
       } else {
         setArticles(prev => [...prev, ...response.articles]);
       }
-
       setPage(pageNum);
     } catch (error) {
       console.error('Error loading articles:', error);
@@ -111,32 +99,20 @@ export default function SwipeScreen() {
   const loadFollowedTopics = async () => {
     try {
       const response = await api.getFollowedTopics();
-      const topicIds = new Set<string>(
-        response.topics.map((t: { id: string; name: string }) => t.id)
-      );
-      setFollowedTopics(topicIds);
+      setFollowedTopics(new Set(response.topics.map((t: { id: string }) => t.id)));
     } catch (error) {
       console.error('Error loading followed topics:', error);
     }
   };
 
-  // Get ticker logo URL
-  const getTickerLogoUrl = (symbol: string): string => {
-    return `https://img.logo.dev/ticker/${symbol}?token=pk_NquCcOJqSl2ZVNwLRKmfjw&format=png&theme=light&retina=true`;
-  };
-
-  const handleToggleFollowTopic = async (topicId: string) => {
+  const handleToggleFollowTopic = async (id: string) => {
     try {
-      if (followedTopics.has(topicId)) {
-        await api.unfollowTopic(topicId);
-        setFollowedTopics(prev => {
-          const next = new Set(prev);
-          next.delete(topicId);
-          return next;
-        });
+      if (followedTopics.has(id)) {
+        await api.unfollowTopic(id);
+        setFollowedTopics(prev => { const next = new Set(prev); next.delete(id); return next; });
       } else {
-        await api.followTopic(topicId);
-        setFollowedTopics(prev => new Set(prev).add(topicId));
+        await api.followTopic(id);
+        setFollowedTopics(prev => new Set(prev).add(id));
       }
     } catch (error) {
       console.error('Error toggling topic follow:', error);
@@ -144,66 +120,42 @@ export default function SwipeScreen() {
   };
 
   const handleOpenArticle = (url: string) => {
-    Linking.openURL(url).catch(() => {
-      Alert.alert('Error', 'Failed to open article');
-    });
+    Linking.openURL(url).catch(() => Alert.alert('Error', 'Failed to open article'));
   };
 
   const handleSendQuestion = () => {
     if (!question.trim()) return;
-
-    // Get the current article
     const currentArticle = articles[currentIndex];
-    if (!currentArticle) {
-      Alert.alert('Error', 'No article selected');
-      return;
-    }
+    if (!currentArticle) return;
 
-    // Prepare article context
-    const articleContext = {
-      title: currentArticle.title,
-      summary: currentArticle.summary,
-      bullets: currentArticle.bullets || [],
-      tickers: currentArticle.tickers || [],
-    };
-
-    // Navigate to chat screen with context
     router.push({
       pathname: '/chat',
       params: {
         question: question.trim(),
-        context: JSON.stringify(articleContext),
+        context: JSON.stringify({
+          title: currentArticle.title,
+          summary: currentArticle.summary,
+          bullets: currentArticle.bullets || [],
+          tickers: currentArticle.tickers || [],
+        }),
       },
     });
-
-    // Clear the input
     setQuestion('');
   };
 
-  const toggleSummaryExpanded = (articleId: string) => {
-    setExpandedSummaryId(prev => prev === articleId ? null : articleId);
-  };
+  const handleViewableItemsChanged = useRef(({ viewableItems }: any) => {
+    if (viewableItems.length > 0) {
+      setCurrentIndex(viewableItems[0].index || 0);
+    }
+  }).current;
 
-  const formatTimestamp = (timestamp: number) => {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins} ${diffMins === 1 ? 'minute' : 'minutes'} ago`;
-    if (diffHours < 24) return `${diffHours} ${diffHours === 1 ? 'hour' : 'hours'} ago`;
-    if (diffDays < 7) return `${diffDays} ${diffDays === 1 ? 'day' : 'days'} ago`;
-    return date.toLocaleDateString();
-  };
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 50 }).current;
 
   const renderCard = ({ item: article }: { item: Article }) => {
     if (!article) return null;
 
     const primaryTopic = article.topics?.[0];
-    const isFollowingTopic = primaryTopic ? followedTopics.has(primaryTopic.id) : false;
+    const isFollowing = primaryTopic ? followedTopics.has(primaryTopic.id) : false;
     const isSummaryExpanded = expandedSummaryId === article.id;
 
     return (
@@ -214,20 +166,17 @@ export default function SwipeScreen() {
           bounces={false}
           scrollEnabled={!isSummaryExpanded}
         >
-          {/* Hero Section with Image and Gradient Overlay */}
+          {/* Hero Section */}
           <View style={styles.heroSection}>
-            {/* Image Container - Top Aligned */}
             <View style={styles.imageContainer}>
               {article.image_url ? (
                 <>
-                  {/* Blurred background layer - covers entire space */}
                   <Image
                     source={{ uri: article.image_url }}
-                    style={styles.heroImageBackground}
+                    style={styles.heroImageBg}
                     resizeMode="cover"
                     blurRadius={20}
                   />
-                  {/* Main image layer - fits without cropping */}
                   <Image
                     source={{ uri: article.image_url }}
                     style={styles.heroImageMain}
@@ -236,208 +185,156 @@ export default function SwipeScreen() {
                 </>
               ) : (
                 <View style={styles.placeholderHero}>
-                  <Ionicons name="newspaper-outline" size={80} color="rgba(255,255,255,0.3)" />
+                  <Ionicons name="newspaper-outline" size={64} color={colors.textTertiary} />
                 </View>
               )}
             </View>
 
-            {/* Linear Gradient Overlay - Black fading shades */}
             <LinearGradient
-              colors={[
-                'rgba(0,0,0,0.1)', // light fade near top
-                'rgba(0,0,0,0.5)',
-                'rgba(0,0,0,0.9)',
-                '#000000',         // strong coverage at bottom
-              ]}
-              locations={[0, 0.3, 0.4, 1]}
-              style={styles.gradientOverlay}
+              colors={['rgba(0,0,0,0.05)', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0.85)', '#000000']}
+              locations={[0, 0.25, 0.5, 1]}
+              style={styles.gradient}
             />
 
-            {/* Back Button - Fixed Top Left */}
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={() => router.back()}
-            >
-              <Ionicons name="arrow-back" size={18} color="#000" />
+            {/* Back + Actions */}
+            <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+              <Ionicons name="chevron-back" size={20} color={colors.textPrimary} />
             </TouchableOpacity>
 
-            {/* Floating Action Buttons - Fixed Bottom Right */}
-            <View style={styles.floatingActionButtons}>
+            <View style={styles.actionBtns}>
               <TouchableOpacity
-                style={styles.floatingActionButton}
-                onPress={() => console.log('Bookmark', article.id)}
-              >
-                <Ionicons name="bookmark-outline" size={18} color="#000" />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.floatingActionButton}
+                style={styles.actionBtn}
                 onPress={() => handleOpenArticle(article.provider_url)}
               >
-                <Ionicons name="share-outline" size={18} color="#000" />
+                <Ionicons name="open-outline" size={18} color={colors.textPrimary} />
               </TouchableOpacity>
             </View>
 
-            {/* Content over the image */}
+            {/* Content over hero */}
             <View style={styles.heroContent}>
-              {/* Topic and Follow Button - Full Width */}
               {primaryTopic && (
                 <View style={styles.topicRow}>
-                  <Text style={styles.topicName}>{primaryTopic.name}</Text>
+                  <Text style={styles.topicLabel}>{primaryTopic.name}</Text>
                   <TouchableOpacity
-                    style={styles.followButton}
+                    style={[styles.followBtn, isFollowing && styles.followBtnActive]}
                     onPress={() => handleToggleFollowTopic(primaryTopic.id)}
                   >
-                    <Text style={styles.followButtonText}>
-                      {isFollowingTopic ? 'Following ✓' : 'Follow'}
+                    <Text style={[styles.followBtnText, isFollowing && styles.followBtnTextActive]}>
+                      {isFollowing ? 'Following' : 'Follow'}
                     </Text>
                   </TouchableOpacity>
                 </View>
               )}
 
-              {/* Title - Full Width */}
               <Text style={styles.heroTitle}>{article.title}</Text>
 
-              {/* Bullet Points - Full Width */}
+              {/* Bullets */}
               {article.bullets && article.bullets.length > 0 && (
-                <View style={styles.heroBulletsContainer}>
-                  {article.bullets.slice(0, 2).map((bullet, index) => {
-                    const cleanBullet = bullet.replace(/["“”]/g, '');
-                    return (
-                      <View key={`${article.id}-bullet-${index}`} style={styles.heroBulletItem}>
-                        <Text style={styles.heroBulletDot}>☐</Text>
-                        <Text style={styles.heroBulletText}>{cleanBullet}</Text>
-                      </View>
-                    );
-                  })}
+                <View style={styles.bulletsContainer}>
+                  {article.bullets.slice(0, 3).map((bullet, index) => (
+                    <View key={index} style={styles.bulletItem}>
+                      <View style={styles.bulletDot} />
+                      <Text style={styles.bulletText}>
+                        {bullet.replace(/["""]/g, '')}
+                      </Text>
+                    </View>
+                  ))}
                 </View>
               )}
 
-              {/* Time and Source - Full Width */}
               <View style={styles.metaRow}>
-                <Text style={styles.metaText}>
-                  {formatTimestamp(article.timestamp)}
-                </Text>
-                <Text style={styles.metaDivider}> | </Text>
                 <Text style={styles.metaText}>{article.provider}</Text>
+                <View style={styles.metaDot} />
+                <Text style={styles.metaText}>{formatRelativeTime(article.timestamp)}</Text>
               </View>
             </View>
           </View>
 
-          {/* White Section - Tickers and Summary */}
-          <View style={styles.whiteSection}>
+          {/* Content Section */}
+          <View style={styles.contentSection}>
             {/* Tickers */}
             {article.tickers && article.tickers.length > 0 && (
-              article.tickers.length > 1 ? (
-                // Horizontal scroll for multiple tickers
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.tickersScrollContainer}
-                >
-                  {article.tickers.map((ticker, index) => (
-                    <TouchableOpacity
-                      key={`${article.id}-ticker-${ticker.symbol}-${index}`}
-                      style={styles.tickerCardSmall}
-                      onPress={() => router.push({
-                        pathname: '/stock/[symbol]',
-                        params: { symbol: ticker.symbol }
-                      })}
-                      activeOpacity={0.7}
-                    >
-                      <View style={styles.tickerLogoContainer}>
-                        <Image
-                          source={{ uri: getTickerLogoUrl(ticker.symbol) }}
-                          style={styles.tickerLogo}
-                          resizeMode="contain"
-                          defaultSource={require('../../assets/images/icon.png')}
-                        />
-                      </View>
-                      <View style={styles.tickerInfo}>
-                        <Text style={styles.tickerSymbol}>{ticker.symbol}</Text>
-                        <Text style={styles.tickerName} numberOfLines={1}>
-                          {ticker.name}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-
-              ) : (
-                // Single ticker (normal layout)
-                <View style={styles.tickersSection}>
-                  {article.tickers.map((ticker, index) => (
-                    <TouchableOpacity
-                      key={`${article.id}-ticker-${ticker.symbol}-${index}`}
-                      style={styles.tickerCard}
-                      onPress={() => router.push({
-                        pathname: '/stock/[symbol]',
-                        params: { symbol: ticker.symbol }
-                      })}
-                      activeOpacity={0.7}
-                    >
-                      <View style={styles.tickerLogoContainer}>
-                        <Image
-                          source={{ uri: getTickerLogoUrl(ticker.symbol) }}
-                          style={styles.tickerLogo}
-                          resizeMode="contain"
-                          defaultSource={require('../../assets/images/icon.png')}
-                        />
-                      </View>
-                      <View style={styles.tickerInfo}>
-                        <Text style={styles.tickerSymbol}>{ticker.symbol}</Text>
-                        <Text style={styles.tickerName} numberOfLines={1}>
-                          {ticker.name}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.tickerScroll}
+              >
+                {article.tickers.map((ticker, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={styles.tickerCard}
+                    onPress={() => router.push({
+                      pathname: '/stock/[symbol]',
+                      params: { symbol: ticker.symbol },
+                    })}
+                    activeOpacity={0.7}
+                  >
+                    <Image
+                      source={{ uri: getTickerLogoUrl(ticker.symbol) }}
+                      style={styles.tickerLogo}
+                      resizeMode="contain"
+                    />
+                    <View style={styles.tickerInfo}>
+                      <Text style={styles.tickerSymbol}>{ticker.symbol}</Text>
+                      <Text style={styles.tickerName} numberOfLines={1}>{ticker.name}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
             )}
-
 
             {/* Summary */}
             {article.summary && (
               <TouchableOpacity
                 style={styles.summarySection}
-                onPress={() => toggleSummaryExpanded(article.id)}
-                activeOpacity={0.7}
+                onPress={() => setExpandedSummaryId(prev => prev === article.id ? null : article.id)}
+                activeOpacity={0.8}
               >
-                <Text style={styles.summaryText} numberOfLines={isSummaryExpanded ? undefined : article.tickers.length > 0 ? 3 : 7}>
+                <Text style={styles.summaryText} numberOfLines={isSummaryExpanded ? undefined : 4}>
                   {article.summary}
-                  {!isSummaryExpanded && article.summary.length > 150 && (
-                    <Text style={styles.moreText}> more...</Text>
-                  )}
                 </Text>
+                {!isSummaryExpanded && article.summary.length > 200 && (
+                  <Text style={styles.readMoreText}>Read more</Text>
+                )}
               </TouchableOpacity>
             )}
+
+            {/* Read Original */}
+            <TouchableOpacity
+              style={styles.readOriginalBtn}
+              onPress={() => handleOpenArticle(article.provider_url)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="globe-outline" size={18} color={colors.accent} />
+              <Text style={styles.readOriginalText}>Read Original</Text>
+              <Ionicons name="arrow-forward" size={16} color={colors.accent} />
+            </TouchableOpacity>
           </View>
         </ScrollView>
 
-        {/* Expanded Summary Overlay - Instagram Reels Style */}
+        {/* Expanded Summary Overlay */}
         {isSummaryExpanded && (
-          <View style={styles.summaryOverlay}>
+          <View style={styles.overlay}>
             <TouchableOpacity
-              style={styles.summaryOverlayBackground}
+              style={styles.overlayBg}
               activeOpacity={1}
               onPress={() => setExpandedSummaryId(null)}
             />
-            <View style={styles.summaryOverlayContent}>
+            <View style={styles.overlayContent}>
               <TouchableOpacity
-                style={styles.summaryOverlayHandle}
+                style={styles.overlayHandle}
                 onPress={() => setExpandedSummaryId(null)}
-                activeOpacity={0.7}
               >
-                <View style={styles.summaryOverlayHandleLine} />
+                <View style={styles.handleBar} />
               </TouchableOpacity>
               <ScrollView
-                style={styles.summaryScrollView}
-                contentContainerStyle={styles.summaryScrollContent}
-                showsVerticalScrollIndicator={true}
-                nestedScrollEnabled={true} // ✅
-                keyboardShouldPersistTaps="handled" // ✅
+                style={styles.overlayScroll}
+                contentContainerStyle={styles.overlayScrollContent}
+                showsVerticalScrollIndicator
+                nestedScrollEnabled
               >
-                <Text style={styles.summaryOverlayText}>{article.summary}</Text>
+                <Text style={styles.overlayText}>{article.summary}</Text>
               </ScrollView>
             </View>
           </View>
@@ -446,44 +343,11 @@ export default function SwipeScreen() {
     );
   };
 
-  const renderNoMoreCards = () => {
-    return (
-      <View style={[styles.card, styles.noMoreCards]}>
-        <Ionicons name="checkmark-circle" size={80} color="#34c759" />
-        <Text style={styles.noMoreCardsText}>You're all caught up!</Text>
-        <Text style={styles.noMoreCardsSubtext}>
-          Check back later for new articles
-        </Text>
-        <TouchableOpacity
-          style={styles.refreshButton}
-          onPress={() => {
-            setCurrentIndex(0);
-            setPage(1);
-            loadArticles(1);
-          }}
-        >
-          <Ionicons name="refresh" size={24} color="#fff" />
-          <Text style={styles.refreshButtonText}>Refresh</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  };
-
-  const handleViewableItemsChanged = useRef(({ viewableItems }: any) => {
-    if (viewableItems.length > 0) {
-      setCurrentIndex(viewableItems[0].index || 0);
-    }
-  }).current;
-
-  const viewabilityConfig = useRef({
-    itemVisiblePercentThreshold: 50,
-  }).current;
-
   if (loading && articles.length === 0) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
+          <ActivityIndicator size="small" color={colors.textSecondary} />
         </View>
       </SafeAreaView>
     );
@@ -492,7 +356,7 @@ export default function SwipeScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <KeyboardAvoidingView
-        style={styles.keyboardAvoidingView}
+        style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={0}
       >
@@ -507,34 +371,32 @@ export default function SwipeScreen() {
           decelerationRate="fast"
           scrollEnabled={expandedSummaryId === null}
           onEndReached={() => {
-            if (!fetchingMore && articles.length >= 20) {
-              loadArticles(page + 1);
-            }
+            if (!fetchingMore && articles.length >= 20) loadArticles(page + 1);
           }}
           onEndReachedThreshold={0.5}
           onViewableItemsChanged={handleViewableItemsChanged}
           viewabilityConfig={viewabilityConfig}
           scrollEventThrottle={16}
-          removeClippedSubviews={true}
+          removeClippedSubviews
           maxToRenderPerBatch={3}
           windowSize={5}
           ListFooterComponent={
             fetchingMore ? (
               <View style={styles.loadingMore}>
-                <ActivityIndicator size="small" color="#007AFF" />
+                <ActivityIndicator size="small" color={colors.textSecondary} />
               </View>
             ) : null
           }
         />
 
-        {/* Fixed Input Box at Bottom */}
-        <View style={styles.inputContainer}>
+        {/* Ask Sensybull Input */}
+        <View style={styles.inputBar}>
           <View style={styles.inputWrapper}>
-            <Ionicons name="sparkles" size={20} color="#007AFF" style={styles.inputIcon} />
+            <Ionicons name="sparkles" size={18} color={colors.accent} style={{ marginRight: 8 }} />
             <TextInput
               style={styles.input}
-              placeholder="Ask Sensybull"
-              placeholderTextColor="#999"
+              placeholder="Ask Sensybull..."
+              placeholderTextColor={colors.textTertiary}
               value={question}
               onChangeText={setQuestion}
               returnKeyType="send"
@@ -542,11 +404,11 @@ export default function SwipeScreen() {
               blurOnSubmit={false}
             />
             <TouchableOpacity
-              style={[styles.sendButton, !question.trim() && styles.sendButtonDisabled]}
+              style={[styles.sendBtn, !question.trim() && { opacity: 0.3 }]}
               onPress={handleSendQuestion}
               disabled={!question.trim()}
             >
-              <Ionicons name="send" size={20} color={question.trim() ? '#007AFF' : '#ccc'} />
+              <Ionicons name="arrow-up-circle" size={28} color={colors.accent} />
             </TouchableOpacity>
           </View>
         </View>
@@ -558,62 +420,52 @@ export default function SwipeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: colors.bg,
   },
-  keyboardAvoidingView: {
-    flex: 1,
-  },
+  flex: { flex: 1 },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
   card: {
-    height: height,
-    width: width,
-    backgroundColor: '#fff',
+    height,
+    width,
+    backgroundColor: colors.bg,
     overflow: 'hidden',
   },
-  cardScroll: {
-    flex: 1,
-  },
+  cardScroll: { flex: 1 },
 
-  // Hero Section - Dynamic height
+  // Hero
   heroSection: {
-    minHeight: 500,
+    minHeight: 480,
     position: 'relative',
-    backgroundColor: '#1a1a1a',
+    backgroundColor: colors.surface,
   },
-
-  // Image Container - Top aligned
   imageContainer: {
     width: '100%',
     height: 280,
     position: 'relative',
-    backgroundColor: '#1a1a1a',
+    backgroundColor: colors.surface,
   },
-  heroImageBackground: {
+  heroImageBg: {
     position: 'absolute',
     width: '100%',
     height: '100%',
-    top: 0,
   },
   heroImageMain: {
     position: 'absolute',
     width: '100%',
-    top: 0,
     height: 280,
   },
   placeholderHero: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#1a1a1a',
+    backgroundColor: colors.surface,
     justifyContent: 'center',
     alignItems: 'center',
   },
-
-  // Gradient overlay - starts earlier and stays solid longer
-  gradientOverlay: {
+  gradient: {
     position: 'absolute',
     top: 0,
     left: 0,
@@ -621,334 +473,272 @@ const styles = StyleSheet.create({
     bottom: 0,
   },
 
-  // Back Button - Top Left
-  backButton: {
+  // Nav buttons
+  backBtn: {
     position: 'absolute',
-    top: 24,
-    left: 20,
+    top: spacing.lg,
+    left: spacing.lg,
     zIndex: 10,
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(255,255,255,0.12)',
     justifyContent: 'center',
     alignItems: 'center',
-    boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.3)',
-    elevation: 6,
   },
-
-  // Floating Action Buttons
-  floatingActionButtons: {
+  actionBtns: {
     position: 'absolute',
-    bottom: 24,
-    right: 20,
+    top: spacing.lg,
+    right: spacing.lg,
     zIndex: 10,
-    gap: 12,
+    gap: spacing.sm,
   },
-  floatingActionButton: {
+  actionBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(255,255,255,0.12)',
     justifyContent: 'center',
     alignItems: 'center',
-    boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.3)',
-    elevation: 6,
   },
 
+  // Hero content
   heroContent: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    padding: 20,
-    paddingRight: 90,
-    paddingBottom: 24,
+    padding: spacing.xl,
+    paddingBottom: spacing.xxl,
   },
-
   topicRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
-    flexWrap: 'wrap',
+    marginBottom: spacing.md,
+    gap: spacing.md,
   },
-  topicName: {
+  topicLabel: {
     fontSize: 12,
-    fontWeight: '400',
-    color: '#fff',
-    marginRight: 12,
-  },
-  followButton: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  followButtonText: {
-    fontSize: 10,
     fontWeight: '600',
-    color: '#fff',
+    color: colors.accent,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
-
+  followBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+  },
+  followBtnActive: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(255,255,255,0.35)',
+  },
+  followBtnText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.8)',
+  },
+  followBtnTextActive: {
+    color: colors.textPrimary,
+  },
   heroTitle: {
     fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
+    fontWeight: '700',
+    color: colors.textPrimary,
     lineHeight: 30,
-    marginBottom: 14,
+    marginBottom: spacing.lg,
+    letterSpacing: -0.3,
   },
-
-  heroBulletsContainer: {
-    marginBottom: 14,
+  bulletsContainer: {
+    marginBottom: spacing.lg,
+    gap: spacing.sm,
   },
-  heroBulletItem: {
+  bulletItem: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 8,
+    gap: spacing.md,
   },
-  heroBulletDot: {
-    fontSize: 10,
-    color: '#fff',
-    marginRight: 10,
-    marginTop: 2,
+  bulletDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: colors.accent,
+    marginTop: 7,
   },
-  heroBulletText: {
+  bulletText: {
     flex: 1,
-    fontSize: 16,
-    lineHeight: 22,
-    color: '#fff',
+    fontSize: 15,
+    lineHeight: 21,
+    color: 'rgba(255,255,255,0.85)',
   },
-
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: spacing.sm,
   },
   metaText: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 13,
+    color: colors.textSecondary,
   },
-  metaDivider: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.5)',
-    marginHorizontal: 4,
+  metaDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: colors.textTertiary,
   },
 
-  whiteSection: {
-    backgroundColor: '#fff',
-    padding: 20,
-    paddingBottom: 30,
+  // Content section
+  contentSection: {
+    backgroundColor: colors.bg,
+    paddingVertical: spacing.xl,
+    paddingBottom: 120,
   },
-  tickersSection: {
-    marginBottom: 10,
+  tickerScroll: {
+    paddingHorizontal: spacing.xl,
+    gap: spacing.md,
+    marginBottom: spacing.xl,
   },
   tickerCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F8F9FA',
-    padding: 14,
-    borderRadius: 12,
-    marginBottom: 10,
-  },
-  tickerLogoContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#fff',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-    overflow: 'hidden',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: colors.border,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    marginRight: spacing.md,
+    gap: spacing.md,
+    minWidth: 180,
   },
   tickerLogo: {
-    width: 36,
-    height: 36,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
   },
   tickerInfo: {
     flex: 1,
   },
   tickerSymbol: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
-    color: '#000',
-    marginBottom: 2,
+    color: colors.textPrimary,
   },
   tickerName: {
-    fontSize: 13,
-    color: '#666',
+    fontSize: 12,
+    color: colors.textTertiary,
+    marginTop: 2,
   },
 
-  tickersScrollContainer: {
-    paddingVertical: 4,
-    paddingLeft: 4,
-    paddingRight: 12,
-  },
-
-  tickerCardSmall: {
-    width: 160,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8F9FA',
-    padding: 12,
-    borderRadius: 12,
-    marginRight: 10,
-  },
-
+  // Summary
   summarySection: {
-    marginBottom: 24,
-    marginHorizontal: 10,
+    marginHorizontal: spacing.xl,
+    marginBottom: spacing.xl,
   },
   summaryText: {
-    fontSize: 16,
-    lineHeight: 24,
-    color: '#333',
+    fontSize: 15,
+    lineHeight: 23,
+    color: colors.textSecondary,
   },
-  moreText: {
-    fontSize: 16,
-    color: '#007AFF',
+  readMoreText: {
+    fontSize: 14,
+    color: colors.accent,
     fontWeight: '600',
-  },
-  readArticleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#007AFF',
-    backgroundColor: '#fff',
-    gap: 8,
-  },
-  readArticleButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#007AFF',
+    marginTop: spacing.sm,
   },
 
-  noMoreCards: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 40,
-  },
-  noMoreCardsText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-    marginTop: 20,
-  },
-  noMoreCardsSubtext: {
-    fontSize: 16,
-    color: '#666',
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  refreshButton: {
+  // Read original
+  readOriginalBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 12,
-    marginTop: 30,
-    gap: 8,
+    marginHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.sm,
   },
-  refreshButtonText: {
-    color: '#fff',
-    fontSize: 16,
+  readOriginalText: {
+    fontSize: 15,
     fontWeight: '600',
+    color: colors.accent,
+  },
+
+  // Input bar
+  inputBar: {
+    backgroundColor: colors.bg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderTopWidth: 0.5,
+    borderTopColor: colors.border,
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  input: {
+    flex: 1,
+    fontSize: 15,
+    color: colors.textPrimary,
+    paddingVertical: spacing.xs,
+  },
+  sendBtn: {
+    marginLeft: spacing.sm,
+  },
+
+  // Overlay
+  overlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    justifyContent: 'flex-end',
+    zIndex: 9999,
+  },
+  overlayBg: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+  },
+  overlayContent: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    height: '75%',
+    overflow: 'hidden',
+  },
+  overlayHandle: {
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+  },
+  handleBar: {
+    width: 40,
+    height: 4,
+    backgroundColor: colors.borderLight,
+    borderRadius: 2,
+  },
+  overlayScroll: {
+    flex: 1,
+    paddingHorizontal: spacing.xl,
+  },
+  overlayScrollContent: {
+    paddingBottom: 40,
+  },
+  overlayText: {
+    fontSize: 16,
+    lineHeight: 25,
+    color: colors.textSecondary,
   },
   loadingMore: {
     height: 100,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-
-  // Fixed Input Container at Bottom
-  inputContainer: {
-    backgroundColor: '#fff',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    boxShadow: '0px -2px 4px rgba(0, 0, 0, 0.1)',
-    elevation: 8,
-  },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-    borderRadius: 24,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  inputIcon: {
-    marginRight: 8,
-  },
-  input: {
-    flex: 1,
-    fontSize: 16,
-    color: '#333',
-    paddingVertical: 0,
-  },
-  sendButton: {
-    marginLeft: 8,
-    padding: 4,
-  },
-  sendButtonDisabled: {
-    opacity: 0.5,
-  },
-
-  // Summary Overlay - Instagram Reels Style
-  summaryOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'flex-end',
-    zIndex: 9999,
-    elevation: 9999,
-  },
-  summaryOverlayBackground: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-  },
-  summaryOverlayContent: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    height: '80%',
-    overflow: 'hidden',
-  },
-  summaryOverlayHandle: {
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
-  summaryOverlayHandleLine: {
-    width: 40,
-    height: 4,
-    backgroundColor: '#ddd',
-    borderRadius: 2,
-  },
-  summaryScrollView: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-  },
-  summaryScrollContent: {
-    paddingBottom: 40,
-    paddingHorizontal: 10,
-  },
-  summaryOverlayText: {
-    fontSize: 16,
-    lineHeight: 24,
-    color: '#333',
   },
 });

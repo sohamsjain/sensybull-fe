@@ -3,18 +3,19 @@ import { Ionicons } from '@expo/vector-icons';
 import { Link, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
+import { colors, radius, spacing } from '../theme';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -48,19 +49,19 @@ export default function LoginScreen() {
         style={styles.keyboardView}
       >
         <View style={styles.content}>
-          <View style={styles.header}>
-            <Ionicons name="trending-up" size={48} color="#007AFF" />
-            <Text style={styles.title}>SensyBull</Text>
-            <Text style={styles.subtitle}>Market Intelligence</Text>
+          {/* Brand */}
+          <View style={styles.brand}>
+            <Text style={styles.logo}>sensybull</Text>
+            <Text style={styles.tagline}>Market intelligence, simplified</Text>
           </View>
 
+          {/* Form */}
           <View style={styles.form}>
             <View style={styles.inputContainer}>
-              <Ionicons name="mail-outline" size={20} color="#666" style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="Email"
-                placeholderTextColor="#999"
+                placeholderTextColor={colors.textTertiary}
                 value={email}
                 onChangeText={setEmail}
                 autoCapitalize="none"
@@ -70,11 +71,10 @@ export default function LoginScreen() {
             </View>
 
             <View style={styles.inputContainer}>
-              <Ionicons name="lock-closed-outline" size={20} color="#666" style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="Password"
-                placeholderTextColor="#999"
+                placeholderTextColor={colors.textTertiary}
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
@@ -82,36 +82,39 @@ export default function LoginScreen() {
               />
               <TouchableOpacity
                 onPress={() => setShowPassword(!showPassword)}
-                style={styles.eyeIcon}
+                style={styles.eyeButton}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
                 <Ionicons
                   name={showPassword ? 'eye-outline' : 'eye-off-outline'}
-                  size={20}
-                  color="#666"
+                  size={18}
+                  color={colors.textTertiary}
                 />
               </TouchableOpacity>
             </View>
 
             <TouchableOpacity
-              style={[styles.loginButton, loading && styles.disabledButton]}
+              style={[styles.button, loading && styles.buttonDisabled]}
               onPress={handleLogin}
               disabled={loading}
+              activeOpacity={0.8}
             >
               {loading ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={colors.bg} />
               ) : (
-                <Text style={styles.loginButtonText}>Sign In</Text>
+                <Text style={styles.buttonText}>Sign In</Text>
               )}
             </TouchableOpacity>
+          </View>
 
-            <View style={styles.signupContainer}>
-              <Text style={styles.signupText}>Don't have an account? </Text>
-              <Link href="/(auth)/register" asChild>
-                <TouchableOpacity disabled={loading}>
-                  <Text style={styles.signupLink}>Sign Up</Text>
-                </TouchableOpacity>
-              </Link>
-            </View>
+          {/* Footer */}
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>Don't have an account? </Text>
+            <Link href="/(auth)/register" asChild>
+              <TouchableOpacity disabled={loading}>
+                <Text style={styles.footerLink}>Sign Up</Text>
+              </TouchableOpacity>
+            </Link>
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -122,83 +125,81 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.bg,
   },
   keyboardView: {
     flex: 1,
   },
   content: {
     flex: 1,
-    paddingHorizontal: 30,
+    paddingHorizontal: spacing.xxxl,
     justifyContent: 'center',
   },
-  header: {
+  brand: {
     alignItems: 'center',
-    marginBottom: 50,
+    marginBottom: 56,
   },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#333',
-    marginTop: 12,
+  logo: {
+    fontSize: 36,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    letterSpacing: -1,
   },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    marginTop: 4,
+  tagline: {
+    fontSize: 15,
+    color: colors.textTertiary,
+    marginTop: spacing.sm,
   },
   form: {
-    width: '100%',
+    gap: spacing.md,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-    borderRadius: 12,
-    marginBottom: 16,
-    paddingHorizontal: 16,
-    height: 50,
-  },
-  inputIcon: {
-    marginRight: 10,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.lg,
+    height: 52,
   },
   input: {
     flex: 1,
     fontSize: 16,
-    color: '#333',
+    color: colors.textPrimary,
   },
-  eyeIcon: {
-    padding: 4,
+  eyeButton: {
+    padding: spacing.xs,
   },
-  loginButton: {
-    backgroundColor: '#007AFF',
-    borderRadius: 12,
-    height: 50,
+  button: {
+    backgroundColor: colors.textPrimary,
+    borderRadius: radius.md,
+    height: 52,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 24,
+    marginTop: spacing.sm,
   },
-  disabledButton: {
-    opacity: 0.7,
+  buttonDisabled: {
+    opacity: 0.5,
   },
-  loginButtonText: {
-    color: '#fff',
-    fontSize: 18,
+  buttonText: {
+    color: colors.bg,
+    fontSize: 17,
     fontWeight: '600',
   },
-  signupContainer: {
+  footer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+    marginTop: spacing.xxxl,
   },
-  signupText: {
+  footerText: {
     fontSize: 14,
-    color: '#666',
+    color: colors.textTertiary,
   },
-  signupLink: {
+  footerLink: {
     fontSize: 14,
-    color: '#007AFF',
+    color: colors.accent,
     fontWeight: '600',
   },
 });

@@ -2,67 +2,56 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Redirect, Tabs } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
+import { colors } from '../theme';
 
 export default function TabLayout() {
   const { isAuthenticated, isLoading } = useAuth();
 
-  if (isLoading) {
-    return null;
-  }
-
-  if (!isAuthenticated) {
-    return <Redirect href="/(auth)/login" />;
-  }
+  if (isLoading) return null;
+  if (!isAuthenticated) return <Redirect href="/(auth)/login" />;
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: '#007AFF',
-        tabBarInactiveTintColor: '#999',
+        tabBarActiveTintColor: colors.textPrimary,
+        tabBarInactiveTintColor: colors.textTertiary,
         tabBarStyle: {
-          backgroundColor: '#fff',
-          borderTopWidth: 1,
-          borderTopColor: '#e0e0e0',
+          backgroundColor: colors.bg,
+          borderTopWidth: 0.5,
+          borderTopColor: colors.border,
+          paddingBottom: 2,
+          height: 50,
         },
-        headerStyle: {
-          backgroundColor: '#fff',
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '500',
         },
-        headerTintColor: '#333',
+        headerShown: false,
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Articles',
-          tabBarLabel: 'Home',
-          headerShown: false,
+          tabBarLabel: 'Feed',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="newspaper-outline" size={size} color={color} />
+            <Ionicons name="newspaper-outline" size={size - 2} color={color} />
           ),
         }}
       />
       <Tabs.Screen
         name="swipe"
         options={{
-          title: 'Feed',
           tabBarLabel: 'Feed',
-          headerShown: false,
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="albums-outline" size={size} color={color} />
-          ),
-          tabBarStyle: {
-            display: 'none',
-          },
+          tabBarButton: () => null,
+          tabBarStyle: { display: 'none' },
         }}
       />
       <Tabs.Screen
         name="watchlist"
         options={{
-          title: 'Watchlist',
-          tabBarLabel: 'Watchlist',
-          headerShown: false,
+          tabBarLabel: 'Markets',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="star-outline" size={size} color={color} />
+            <Ionicons name="trending-up-outline" size={size - 2} color={color} />
           ),
         }}
       />

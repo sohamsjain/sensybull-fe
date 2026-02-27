@@ -1,80 +1,61 @@
-// app/article/[id].tsx
+// app/article/[id].tsx — Article Detail (deep link support)
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Linking,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Linking,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import api from '../services/api';
+import { colors, radius, spacing } from '../theme';
 
 interface ArticleDetail {
   id: string;
   title: string;
   summary: string;
-  content: string;
+  bullets: string[];
   url: string;
   provider: string;
   timestamp: number;
   tickers: Array<{ symbol: string; name: string }>;
+  topics: Array<{ id: string; name: string }>;
 }
 
 export default function ArticleDetailScreen() {
   const { id } = useLocalSearchParams();
+  const router = useRouter();
   const [article, setArticle] = useState<ArticleDetail | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadArticle();
-  }, [id]);
+  useEffect(() => { loadArticle(); }, [id]);
 
   const loadArticle = async () => {
     try {
       const response = await api.getArticle(id as string);
       setArticle(response.article);
     } catch (error) {
-      console.error('Error loading article:', error);
       Alert.alert('Error', 'Failed to load article');
     } finally {
       setLoading(false);
     }
   };
 
-  const formatDate = (timestamp: number) => {
-    const date = new Date(timestamp);
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
-  const handleOpenURL = async () => {
-    if (article?.url) {
-      const canOpen = await Linking.canOpenURL(article.url);
-      if (canOpen) {
-        await Linking.openURL(article.url);
-      } else {
-        Alert.alert('Error', 'Cannot open URL');
-      }
-    }
-  };
+  const formatDate = (ts: number) =>
+    new Date(ts).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <Stack.Screen options={{ title: 'Loading...' }} />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <View style={styles.center}>
+          <ActivityIndicator size="small" color={colors.textSecondary} />
         </View>
       </SafeAreaView>
     );
@@ -82,9 +63,9 @@ export default function ArticleDetailScreen() {
 
   if (!article) {
     return (
-      <SafeAreaView style={styles.container}>
-        <Stack.Screen options={{ title: 'Error' }} />
-        <View style={styles.errorContainer}>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <View style={styles.center}>
           <Text style={styles.errorText}>Article not found</Text>
         </View>
       </SafeAreaView>
@@ -92,70 +73,98 @@ export default function ArticleDetailScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      <Stack.Screen 
-        options={{ 
-          title: article.provider,
-          headerRight: () => (
-            <TouchableOpacity onPress={handleOpenURL}>
-              <Ionicons name="open-outline" size={22} color="#007AFF" />
-            </TouchableOpacity>
-          ),
-        }} 
-      />
-      <ScrollView 
-        style={styles.scrollView}
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <Stack.Screen options={{ headerShown: false }} />
+
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
+        </TouchableOpacity>
+        <Text style={styles.headerProvider}>{article.provider}</Text>
+        <TouchableOpacity onPress={() => Linking.openURL(article.url)}>
+          <Ionicons name="open-outline" size={20} color={colors.accent} />
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView
+        style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.header}>
-          <Text style={styles.title}>{article.title}</Text>
-          
-          <View style={styles.metaContainer}>
-            <Text style={styles.provider}>{article.provider}</Text>
-            <Text style={styles.date}>{formatDate(article.timestamp)}</Text>
-          </View>
+        {/* Topic */}
+        {article.topics?.[0] && (
+          <Text style={styles.topic}>{article.topics[0].name}</Text>
+        )}
 
-          {article.tickers.length > 0 && (
-            <View style={styles.tickersContainer}>
-              {article.tickers.map((ticker, index) => (
-                <View key={index} style={styles.tickerBadge}>
-                  <Text style={styles.tickerSymbol}>{ticker.symbol}</Text>
-                  <Text style={styles.tickerName}>{ticker.name}</Text>
-                </View>
-              ))}
-            </View>
-          )}
-        </View>
+        <Text style={styles.title}>{article.title}</Text>
 
-        <View style={styles.contentContainer}>
-          {article.summary && (
-            <View style={styles.summaryContainer}>
-              <Text style={styles.summaryLabel}>Summary</Text>
-              <Text style={styles.summary}>{article.summary}</Text>
-            </View>
-          )}
+        <Text style={styles.date}>{formatDate(article.timestamp)}</Text>
 
-          {article.content ? (
-            <Text style={styles.content}>{article.content}</Text>
-          ) : (
-            <View style={styles.noContentContainer}>
-              <Ionicons name="document-text-outline" size={48} color="#ccc" />
-              <Text style={styles.noContentText}>
-                Full content not available in app
-              </Text>
-              <TouchableOpacity style={styles.readButton} onPress={handleOpenURL}>
-                <Text style={styles.readButtonText}>Read on {article.provider}</Text>
-                <Ionicons name="arrow-forward" size={18} color="#fff" />
+        {/* Tickers */}
+        {article.tickers.length > 0 && (
+          <View style={styles.tickersRow}>
+            {article.tickers.map((t, i) => (
+              <TouchableOpacity
+                key={i}
+                style={styles.tickerPill}
+                onPress={() => router.push({ pathname: '/stock/[symbol]', params: { symbol: t.symbol } })}
+              >
+                <Text style={styles.tickerText}>${t.symbol}</Text>
               </TouchableOpacity>
-            </View>
-          )}
-        </View>
+            ))}
+          </View>
+        )}
 
-        <TouchableOpacity style={styles.sourceButton} onPress={handleOpenURL}>
-          <Ionicons name="globe-outline" size={20} color="#007AFF" />
-          <Text style={styles.sourceButtonText}>View Original Article</Text>
-          <Ionicons name="chevron-forward" size={20} color="#007AFF" />
+        {/* Bullets */}
+        {article.bullets && article.bullets.length > 0 && (
+          <View style={styles.bulletsCard}>
+            <Text style={styles.bulletsLabel}>Key Points</Text>
+            {article.bullets.map((b, i) => (
+              <View key={i} style={styles.bulletRow}>
+                <View style={styles.bulletDot} />
+                <Text style={styles.bulletText}>{b.replace(/["""]/g, '')}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Summary */}
+        {article.summary && (
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>Summary</Text>
+            <Text style={styles.summaryText}>{article.summary}</Text>
+          </View>
+        )}
+
+        {/* Ask AI */}
+        <TouchableOpacity
+          style={styles.askBtn}
+          onPress={() => router.push({
+            pathname: '/chat',
+            params: {
+              context: JSON.stringify({
+                title: article.title,
+                summary: article.summary,
+                bullets: article.bullets || [],
+                tickers: article.tickers || [],
+              }),
+            },
+          })}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="sparkles" size={18} color={colors.accent} />
+          <Text style={styles.askBtnText}>Ask Sensybull about this</Text>
+        </TouchableOpacity>
+
+        {/* Read original */}
+        <TouchableOpacity
+          style={styles.readBtn}
+          onPress={() => Linking.openURL(article.url)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.readBtnText}>Read Original</Text>
+          <Ionicons name="arrow-forward" size={16} color={colors.accent} />
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -163,154 +172,71 @@ export default function ArticleDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 30,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  errorText: {
-    fontSize: 16,
-    color: '#666',
-  },
+  container: { flex: 1, backgroundColor: colors.bg },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  errorText: { fontSize: 15, color: colors.textTertiary },
+
   header: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
+    borderBottomWidth: 0.5, borderBottomColor: colors.border,
+  },
+  backBtn: { padding: spacing.xs },
+  headerProvider: { fontSize: 15, fontWeight: '600', color: colors.textSecondary },
+
+  scroll: { flex: 1 },
+  scrollContent: { padding: spacing.xl, paddingBottom: spacing.xxxl * 2 },
+
+  topic: {
+    fontSize: 12, fontWeight: '600', color: colors.accent,
+    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: spacing.md,
   },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-    lineHeight: 32,
-    marginBottom: 12,
+    fontSize: 24, fontWeight: '700', color: colors.textPrimary,
+    lineHeight: 31, letterSpacing: -0.3, marginBottom: spacing.md,
   },
-  metaContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
+  date: { fontSize: 13, color: colors.textTertiary, marginBottom: spacing.xl },
+
+  tickersRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.xl },
+  tickerPill: {
+    backgroundColor: colors.surfaceRaised, paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2, borderRadius: radius.full,
   },
-  provider: {
-    fontSize: 14,
-    color: '#007AFF',
-    fontWeight: '600',
-    textTransform: 'uppercase',
+  tickerText: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
+
+  bulletsCard: {
+    backgroundColor: colors.surface, borderRadius: radius.md,
+    borderWidth: 1, borderColor: colors.border, padding: spacing.lg, marginBottom: spacing.xl,
   },
-  date: {
-    fontSize: 14,
-    color: '#666',
+  bulletsLabel: {
+    fontSize: 12, fontWeight: '600', color: colors.textTertiary,
+    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: spacing.md,
   },
-  tickersContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: 8,
-  },
-  tickerBadge: {
-    backgroundColor: '#f0f8ff',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    marginRight: 8,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#d0e8ff',
-  },
-  tickerSymbol: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#007AFF',
-  },
-  tickerName: {
-    fontSize: 10,
-    color: '#666',
-    marginTop: 2,
-  },
-  contentContainer: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-  },
-  summaryContainer: {
-    backgroundColor: '#f8f9fa',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 20,
+  bulletRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, marginBottom: spacing.md },
+  bulletDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: colors.accent, marginTop: 7 },
+  bulletText: { flex: 1, fontSize: 15, lineHeight: 22, color: colors.textSecondary },
+
+  summaryCard: {
+    backgroundColor: colors.surface, borderRadius: radius.md,
+    borderWidth: 1, borderColor: colors.border, padding: spacing.lg, marginBottom: spacing.xl,
   },
   summaryLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#666',
-    textTransform: 'uppercase',
-    marginBottom: 8,
+    fontSize: 12, fontWeight: '600', color: colors.textTertiary,
+    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: spacing.md,
   },
-  summary: {
-    fontSize: 16,
-    color: '#333',
-    lineHeight: 24,
+  summaryText: { fontSize: 15, lineHeight: 23, color: colors.textSecondary },
+
+  askBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.accentMuted, borderRadius: radius.md,
+    paddingVertical: spacing.md + 2, gap: spacing.sm, marginBottom: spacing.lg,
   },
-  content: {
-    fontSize: 16,
-    color: '#333',
-    lineHeight: 26,
+  askBtnText: { fontSize: 15, fontWeight: '600', color: colors.accent },
+
+  readBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
+    paddingVertical: spacing.md, gap: spacing.sm,
   },
-  noContentContainer: {
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  noContentText: {
-    fontSize: 16,
-    color: '#999',
-    marginTop: 12,
-    marginBottom: 20,
-  },
-  readButton: {
-    flexDirection: 'row',
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 25,
-    alignItems: 'center',
-  },
-  readButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginRight: 8,
-  },
-  sourceButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginHorizontal: 20,
-    marginTop: 30,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    backgroundColor: '#f0f8ff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#d0e8ff',
-  },
-  sourceButtonText: {
-    flex: 1,
-    fontSize: 16,
-    color: '#007AFF',
-    fontWeight: '600',
-    marginLeft: 10,
-  },
+  readBtnText: { fontSize: 15, fontWeight: '600', color: colors.accent },
 });
