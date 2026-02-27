@@ -61,6 +61,7 @@ export default function StockDetailScreen() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [snapshotPrice, setSnapshotPrice] = useState<number | null>(null);
   const [activeArticleIndex, setActiveArticleIndex] = useState<number | null>(null);
 
   const flatListRef = useRef<FlatList>(null);
@@ -72,73 +73,38 @@ export default function StockDetailScreen() {
   useEffect(() => {
     if (symbol) {
       loadTickerData();
+      loadPriceData();
       loadArticles(1);
     }
   }, [symbol]);
 
-  const generateMockPriceData = (articles: Article[], basePrice: number): PricePoint[] => {
-    if (articles.length === 0) {
-      // Generate 30 days of data if no articles
-      const now = Date.now() / 1000;
-      const thirtyDaysAgo = now - (30 * 24 * 60 * 60);
-      const data: PricePoint[] = [];
-      
-      for (let i = 0; i < 30; i++) {
-        const timestamp = thirtyDaysAgo + (i * 24 * 60 * 60);
-        const variance = (Math.random() - 0.5) * (basePrice * 0.05);
-        const price = basePrice + variance + (i * 0.5); // Slight upward trend
-        data.push({ timestamp, price });
-      }
-      
-      return data;
-    }
+  const loadPriceData = async () => {
+    try {
+      const [barsResponse, snapshotResponse] = await Promise.all([
+        api.getTickerBars(symbol),
+        api.getTickerSnapshot(symbol),
+      ]);
 
-    // Generate data from oldest article to now
-    const oldestTimestamp = Math.min(...articles.map(a => a.timestamp));
-    const newestTimestamp = Math.max(...articles.map(a => a.timestamp));
-    const now = Date.now() / 1000;
-    
-    const startTime = oldestTimestamp - (7 * 24 * 60 * 60); // Start 7 days before oldest article
-    const endTime = Math.max(newestTimestamp, now);
-    const duration = endTime - startTime;
-    const numPoints = 100;
-    const interval = duration / numPoints;
-
-    const data: PricePoint[] = [];
-    let currentPrice = basePrice;
-
-    for (let i = 0; i <= numPoints; i++) {
-      const timestamp = startTime + (i * interval);
-      
-      // Check if there's an article near this timestamp
-      const nearbyArticle = articles.find(a => 
-        Math.abs(a.timestamp - timestamp) < interval
-      );
-
-      if (nearbyArticle) {
-        // Simulate market reaction to news
-        const reaction = (Math.random() - 0.4) * (basePrice * 0.03);
-        currentPrice += reaction;
-      } else {
-        // Normal market fluctuation
-        const variance = (Math.random() - 0.5) * (basePrice * 0.01);
-        currentPrice += variance;
+      if (barsResponse.bars && barsResponse.bars.length > 0) {
+        setPriceData(barsResponse.bars.map((b: { timestamp: number; price: number }) => ({
+          timestamp: b.timestamp,
+          price: b.price,
+        })));
       }
 
-      // Keep price within reasonable bounds
-      currentPrice = Math.max(basePrice * 0.8, Math.min(basePrice * 1.2, currentPrice));
-      
-      data.push({ timestamp, price: currentPrice });
+      if (snapshotResponse.price) {
+        setSnapshotPrice(snapshotResponse.price);
+      }
+    } catch (error) {
+      console.error('Error loading price data:', error);
     }
-
-    return data;
   };
 
   const loadTickerData = async () => {
     try {
       const response = await api.getTicker(symbol);
       setTicker(response.ticker);
-      
+
       // Check if following
       const followedResponse = await api.getFollowedTickers();
       const isFollowed = followedResponse.tickers.some(
@@ -162,14 +128,9 @@ export default function StockDetailScreen() {
       }
 
       const response = await api.getArticlesByTicker(symbol, pageNum, 20);
-      
+
       const newArticles = pageNum === 1 ? response.articles : [...articles, ...response.articles];
       setArticles(newArticles);
-
-      // Generate mock price data based on articles
-      const basePrice = ticker?.last_price || 150 + Math.random() * 100;
-      const mockData = generateMockPriceData(newArticles, basePrice);
-      setPriceData(mockData);
 
       setPage(pageNum);
       setHasMore(response.articles.length === 20);
@@ -340,7 +301,7 @@ export default function StockDetailScreen() {
 
   const chartData = getChartData();
   const markerPosition = getActiveArticleMarkerPosition();
-  const currentPrice = priceData.length > 0 ? priceData[priceData.length - 1].price : ticker?.last_price || 0;
+  const currentPrice = snapshotPrice || (priceData.length > 0 ? priceData[priceData.length - 1].price : ticker?.last_price || 0);
   const priceChange = priceData.length > 1 
     ? ((priceData[priceData.length - 1].price - priceData[0].price) / priceData[0].price) * 100
     : 0;

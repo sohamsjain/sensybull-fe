@@ -213,6 +213,47 @@ class ApiService {
     return this.handleResponse(response);
   }
 
+  async getTickerSnapshot(symbol: string) {
+    const response = await fetch(
+      `${API_BASE_URL}/tickers/${symbol.toUpperCase()}/snapshot`,
+      {
+        headers: await this.getHeaders(),
+      }
+    );
+    return this.handleResponse(response);
+  }
+
+  async getTickerBars(symbol: string, params: {
+    timeframe?: string;
+    start?: string;
+    end?: string;
+  } = {}) {
+    const queryParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined) {
+        queryParams.append(key, value);
+      }
+    });
+
+    const qs = queryParams.toString();
+    const url = `${API_BASE_URL}/tickers/${symbol.toUpperCase()}/bars${qs ? `?${qs}` : ''}`;
+    const response = await fetch(url, {
+      headers: await this.getHeaders(),
+    });
+    return this.handleResponse(response);
+  }
+
+  async getBatchSnapshots(symbols: string[]) {
+    if (symbols.length === 0) return { prices: {} };
+    const response = await fetch(
+      `${API_BASE_URL}/tickers/snapshots?symbols=${symbols.map(s => s.toUpperCase()).join(',')}`,
+      {
+        headers: await this.getHeaders(),
+      }
+    );
+    return this.handleResponse(response);
+  }
+
   // Topics endpoints
   async getAllTopics(params: {
     q?: string;
