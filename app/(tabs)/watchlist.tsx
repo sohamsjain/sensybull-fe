@@ -24,9 +24,16 @@ interface Ticker {
     last_updated?: string;
 }
 
+interface LivePrice {
+    price: number;
+    prev_close: number;
+    change_percent: number;
+}
+
 export default function WatchlistScreen() {
     const router = useRouter();
     const [watchlist, setWatchlist] = useState<Ticker[]>([]);
+    const [livePrices, setLivePrices] = useState<Record<string, LivePrice>>({});
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState<Ticker[]>([]);
     const [loading, setLoading] = useState(true);
@@ -37,11 +44,24 @@ export default function WatchlistScreen() {
         loadWatchlist();
     }, []);
 
+    const loadLivePrices = async (tickers: Ticker[]) => {
+        if (tickers.length === 0) return;
+        try {
+            const symbols = tickers.map(t => t.symbol);
+            const response = await api.getBatchSnapshots(symbols);
+            setLivePrices(response.prices || {});
+        } catch (error) {
+            console.error('Error loading live prices:', error);
+        }
+    };
+
     const loadWatchlist = async () => {
         try {
             setLoading(true);
             const response = await api.getFollowedTickers();
-            setWatchlist(response.tickers || []);
+            const tickers = response.tickers || [];
+            setWatchlist(tickers);
+            await loadLivePrices(tickers);
         } catch (error) {
             console.error('Error loading watchlist:', error);
             Alert.alert('Error', 'Failed to load your watchlist');
@@ -114,14 +134,11 @@ export default function WatchlistScreen() {
         return `https://img.logo.dev/ticker/${symbol}?token=pk_NquCcOJqSl2ZVNwLRKmfjw&format=png&theme=light&retina=true`;
     };
 
-    const formatPrice = (price?: number): string => {
-        const shouldRandomize = price == null || price === 0;
-
-        const value = shouldRandomize
-            ? 150 + Math.random() * 150   // random between 150–300
-            : price;
-
-        return `$${value.toFixed(2)}`;
+    const formatPrice = (symbol: string, dbPrice?: number): string => {
+        const live = livePrices[symbol];
+        if (live && live.price > 0) return `$${live.price.toFixed(2)}`;
+        if (dbPrice && dbPrice > 0) return `$${dbPrice.toFixed(2)}`;
+        return '--';
     };
 
 
@@ -150,8 +167,19 @@ export default function WatchlistScreen() {
                         {item.name}
                     </Text>
                 </View>
-                {!isSearchResult && item.last_price !== undefined && (
-                    <Text style={styles.tickerPrice}>{formatPrice(item.last_price)}</Text>
+                {!isSearchResult && (
+                    <View style={styles.priceColumn}>
+                        <Text style={styles.tickerPrice}>{formatPrice(item.symbol, item.last_price)}</Text>
+                        {livePrices[item.symbol] && livePrices[item.symbol].change_percent !== 0 && (
+                            <Text style={[
+                                styles.changePercent,
+                                livePrices[item.symbol].change_percent >= 0 ? styles.changeUp : styles.changeDown
+                            ]}>
+                                {livePrices[item.symbol].change_percent >= 0 ? '+' : ''}
+                                {livePrices[item.symbol].change_percent.toFixed(2)}%
+                            </Text>
+                        )}
+                    </View>
                 )}
             </TouchableOpacity>
 
@@ -388,10 +416,24 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         gap: 12,
     },
+    priceColumn: {
+        alignItems: 'flex-end',
+    },
     tickerPrice: {
         fontSize: 16,
         fontWeight: '600',
         color: '#000',
+    },
+    changePercent: {
+        fontSize: 12,
+        fontWeight: '500',
+        marginTop: 2,
+    },
+    changeUp: {
+        color: '#34C759',
+    },
+    changeDown: {
+        color: '#FF3B30',
     },
     addButton: {
         padding: 4,
