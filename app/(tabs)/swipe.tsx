@@ -65,7 +65,7 @@ export default function SwipeScreen() {
       let response;
 
       // If we have a topicId from params, load that topic's articles
-      if (topicId && topicId !== 'for-you' && pageNum === 1) {
+      if (topicId && topicId !== 'for-you') {
         response = await api.getTopicArticles(topicId as string, pageNum, 20);
       } else {
         // Default: load all articles
@@ -76,18 +76,31 @@ export default function SwipeScreen() {
       }
 
       if (pageNum === 1) {
-        setArticles(response.articles);
+        let finalArticles = response.articles;
+        let targetIndex = -1;
 
-        // If we have a specific articleId, find its index and scroll to it
         if (articleId) {
-          const index = response.articles.findIndex((a: Article) => a.id === articleId);
-          if (index !== -1) {
-            setCurrentIndex(index);
-            // Use setTimeout to ensure FlatList is mounted
-            setTimeout(() => {
-              flatListRef.current?.scrollToIndex({ index, animated: false });
-            }, 100);
+          targetIndex = finalArticles.findIndex((a: Article) => a.id === articleId);
+
+          if (targetIndex === -1) {
+            // Article not in first page — fetch it individually and prepend
+            try {
+              const singleArticle = await api.getArticle(articleId as string);
+              finalArticles = [singleArticle, ...finalArticles];
+              targetIndex = 0;
+            } catch (err) {
+              console.error('Failed to fetch target article:', err);
+            }
           }
+        }
+
+        setArticles(finalArticles);
+
+        if (targetIndex !== -1) {
+          setCurrentIndex(targetIndex);
+          setTimeout(() => {
+            flatListRef.current?.scrollToIndex({ index: targetIndex, animated: false });
+          }, 100);
         }
       } else {
         setArticles(prev => [...prev, ...response.articles]);
@@ -506,6 +519,16 @@ export default function SwipeScreen() {
           snapToInterval={height}
           decelerationRate="fast"
           scrollEnabled={expandedSummaryId === null}
+          getItemLayout={(data, index) => ({
+            length: height,
+            offset: height * index,
+            index,
+          })}
+          onScrollToIndexFailed={(info) => {
+            setTimeout(() => {
+              flatListRef.current?.scrollToIndex({ index: info.index, animated: false });
+            }, 500);
+          }}
           onEndReached={() => {
             if (!fetchingMore && articles.length >= 20) {
               loadArticles(page + 1);
