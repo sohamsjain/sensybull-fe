@@ -1,4 +1,4 @@
-// app/(tabs)/swipe.tsx
+// app/swipe.tsx
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -20,7 +20,7 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import api from '../services/api';
+import api from './services/api';
 
 const { width, height } = Dimensions.get('window');
 
@@ -362,7 +362,7 @@ export default function SwipeScreen() {
                           source={{ uri: getTickerLogoUrl(ticker.symbol) }}
                           style={styles.tickerLogo}
                           resizeMode="contain"
-                          defaultSource={require('../../assets/images/icon.png')}
+                          defaultSource={require('../assets/images/icon.png')}
                         />
                       </View>
                       <View style={styles.tickerInfo}>
@@ -393,7 +393,7 @@ export default function SwipeScreen() {
                           source={{ uri: getTickerLogoUrl(ticker.symbol) }}
                           style={styles.tickerLogo}
                           resizeMode="contain"
-                          defaultSource={require('../../assets/images/icon.png')}
+                          defaultSource={require('../assets/images/icon.png')}
                         />
                       </View>
                       <View style={styles.tickerInfo}>

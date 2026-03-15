@@ -42,20 +42,6 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="swipe"
-        options={{
-          title: 'Feed',
-          tabBarLabel: 'Feed',
-          headerShown: false,
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="albums-outline" size={size} color={color} />
-          ),
-          tabBarStyle: {
-            display: 'none',
-          },
-        }}
-      />
-      <Tabs.Screen
         name="watchlist"
         options={{
           title: 'Watchlist',
