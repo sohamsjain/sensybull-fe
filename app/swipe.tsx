@@ -1,7 +1,7 @@
 // app/swipe.tsx
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as Sharing from 'expo-sharing';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -20,6 +20,7 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { captureRef } from 'react-native-view-shot';
 import api from './services/api';
 
 const { width, height } = Dimensions.get('window');
@@ -50,9 +51,11 @@ export default function SwipeScreen() {
   const [followedTopics, setFollowedTopics] = useState<Set<string>>(new Set());
   const [question, setQuestion] = useState('');
   const [expandedSummaryId, setExpandedSummaryId] = useState<string | null>(null);
+  const [sharingArticleId, setSharingArticleId] = useState<string | null>(null);
   const router = useRouter();
 
   const flatListRef = useRef<FlatList>(null);
+  const shareCardRefs = useRef<{ [key: string]: View | null }>({});
 
   const loadArticles = useCallback(async (pageNum = 1) => {
     try {
@@ -64,11 +67,9 @@ export default function SwipeScreen() {
 
       let response;
 
-      // If we have a topicId from params, load that topic's articles
       if (topicId && topicId !== 'for-you') {
         response = await api.getTopicArticles(topicId as string, pageNum, 20);
       } else {
-        // Default: load all articles
         response = await api.getArticles({
           page: pageNum,
           per_page: 20,
@@ -83,7 +84,6 @@ export default function SwipeScreen() {
           targetIndex = finalArticles.findIndex((a: Article) => a.id === articleId);
 
           if (targetIndex === -1) {
-            // Article not in first page — fetch it individually and prepend
             try {
               const singleArticle = await api.getArticle(articleId as string);
               finalArticles = [singleArticle, ...finalArticles];
@@ -133,7 +133,6 @@ export default function SwipeScreen() {
     }
   };
 
-  // Get ticker logo URL
   const getTickerLogoUrl = (symbol: string): string => {
     return `https://img.logo.dev/ticker/${symbol}?token=pk_NquCcOJqSl2ZVNwLRKmfjw&format=png&theme=light&retina=true`;
   };
@@ -162,17 +161,51 @@ export default function SwipeScreen() {
     });
   };
 
+  const handleShare = async (article: Article) => {
+    try {
+      setSharingArticleId(article.id);
+
+      // Wait for the share card to render
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      const ref = shareCardRefs.current[article.id];
+      if (!ref) {
+        Alert.alert('Error', 'Could not capture share image');
+        setSharingArticleId(null);
+        return;
+      }
+
+      const uri = await captureRef(ref, {
+        format: 'png',
+        quality: 1,
+      });
+
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'image/png',
+          dialogTitle: article.title,
+        });
+      } else {
+        Alert.alert('Sharing is not available on this device');
+      }
+    } catch (error) {
+      console.error('Error sharing article:', error);
+      Alert.alert('Error', 'Failed to share article');
+    } finally {
+      setSharingArticleId(null);
+    }
+  };
+
   const handleSendQuestion = () => {
     if (!question.trim()) return;
 
-    // Get the current article
     const currentArticle = articles[currentIndex];
     if (!currentArticle) {
       Alert.alert('Error', 'No article selected');
       return;
     }
 
-    // Prepare article context
     const articleContext = {
       title: currentArticle.title,
       summary: currentArticle.summary,
@@ -180,7 +213,6 @@ export default function SwipeScreen() {
       tickers: currentArticle.tickers || [],
     };
 
-    // Navigate to chat screen with context
     router.push({
       pathname: '/chat',
       params: {
@@ -189,7 +221,6 @@ export default function SwipeScreen() {
       },
     });
 
-    // Clear the input
     setQuestion('');
   };
 
@@ -212,6 +243,59 @@ export default function SwipeScreen() {
     return date.toLocaleDateString();
   };
 
+  const renderShareCard = (article: Article) => {
+    const primaryTopic = article.topics?.[0];
+
+    return (
+      <View
+        ref={(ref) => { shareCardRefs.current[article.id] = ref; }}
+        style={styles.shareCard}
+        collapsable={false}
+      >
+        {/* Topic */}
+        {primaryTopic && (
+          <View style={styles.shareTopicPill}>
+            <Text style={styles.shareTopicText}>{primaryTopic.name}</Text>
+          </View>
+        )}
+
+        {/* Title */}
+        <Text style={styles.shareTitle}>{article.title}</Text>
+
+        {/* Bullets */}
+        {article.bullets && article.bullets.length > 0 && (
+          <View style={styles.shareBulletsContainer}>
+            {article.bullets.map((bullet, index) => {
+              const cleanBullet = bullet.replace(/["""]/g, '');
+              return (
+                <View key={`share-bullet-${index}`} style={styles.shareBulletItem}>
+                  <View style={styles.shareBulletDot} />
+                  <Text style={styles.shareBulletText}>{cleanBullet}</Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
+
+        {/* Meta */}
+        <View style={styles.shareMeta}>
+          <Text style={styles.shareMetaText}>
+            {formatTimestamp(article.timestamp)}
+          </Text>
+          <Text style={styles.shareMetaDivider}> | </Text>
+          <Ionicons name="link-outline" size={12} color="#666" />
+          <Text style={styles.shareMetaText}> {article.provider}</Text>
+        </View>
+
+        {/* Branding Footer */}
+        <View style={styles.shareBrandingFooter}>
+          <View style={styles.shareBrandingDivider} />
+          <Text style={styles.shareBrandingText}>Powered by Sensybull</Text>
+        </View>
+      </View>
+    );
+  };
+
   const renderCard = ({ item: article }: { item: Article }) => {
     if (!article) return null;
 
@@ -227,121 +311,95 @@ export default function SwipeScreen() {
           bounces={false}
           scrollEnabled={!isSummaryExpanded}
         >
-          {/* Hero Section with Image and Gradient Overlay */}
-          <View style={styles.heroSection}>
-            {/* Image Container - Top Aligned */}
-            <View style={styles.imageContainer}>
-              {article.image_url ? (
-                <>
-                  {/* Blurred background layer - covers entire space */}
-                  <Image
-                    source={{ uri: article.image_url }}
-                    style={styles.heroImageBackground}
-                    resizeMode="cover"
-                    blurRadius={20}
-                  />
-                  {/* Main image layer - fits without cropping */}
-                  <Image
-                    source={{ uri: article.image_url }}
-                    style={styles.heroImageMain}
-                    resizeMode="cover"
-                  />
-                </>
-              ) : (
-                <View style={styles.placeholderHero}>
-                  <Ionicons name="newspaper-outline" size={80} color="rgba(255,255,255,0.3)" />
-                </View>
-              )}
-            </View>
-
-            {/* Linear Gradient Overlay - Black fading shades */}
-            <LinearGradient
-              colors={[
-                'rgba(0,0,0,0.1)', // light fade near top
-                'rgba(0,0,0,0.5)',
-                'rgba(0,0,0,0.9)',
-                '#000000',         // strong coverage at bottom
-              ]}
-              locations={[0, 0.3, 0.4, 1]}
-              style={styles.gradientOverlay}
-            />
-
-            {/* Back Button - Fixed Top Left */}
+          {/* Top Bar */}
+          <View style={styles.topBar}>
             <TouchableOpacity
               style={styles.backButton}
               onPress={() => router.back()}
             >
-              <Ionicons name="arrow-back" size={18} color="#000" />
+              <Ionicons name="arrow-back" size={20} color="#333" />
             </TouchableOpacity>
 
-            {/* Floating Action Buttons - Fixed Bottom Right */}
-            <View style={styles.floatingActionButtons}>
+            <View style={styles.topBarActions}>
               <TouchableOpacity
-                style={styles.floatingActionButton}
+                style={styles.actionButton}
                 onPress={() => console.log('Bookmark', article.id)}
               >
-                <Ionicons name="bookmark-outline" size={18} color="#000" />
+                <Ionicons name="bookmark-outline" size={20} color="#333" />
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.floatingActionButton}
-                onPress={() => handleOpenArticle(article.provider_url)}
+                style={styles.actionButton}
+                onPress={() => handleShare(article)}
               >
-                <Ionicons name="share-outline" size={18} color="#000" />
+                <Ionicons name="share-outline" size={20} color="#333" />
               </TouchableOpacity>
-            </View>
-
-            {/* Content over the image */}
-            <View style={styles.heroContent}>
-              {/* Topic and Follow Button - Full Width */}
-              {primaryTopic && (
-                <View style={styles.topicRow}>
-                  <Text style={styles.topicName}>{primaryTopic.name}</Text>
-                  <TouchableOpacity
-                    style={styles.followButton}
-                    onPress={() => handleToggleFollowTopic(primaryTopic.id)}
-                  >
-                    <Text style={styles.followButtonText}>
-                      {isFollowingTopic ? 'Following ✓' : 'Follow'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-
-              {/* Title - Full Width */}
-              <Text style={styles.heroTitle}>{article.title}</Text>
-
-              {/* Bullet Points - Full Width */}
-              {article.bullets && article.bullets.length > 0 && (
-                <View style={styles.heroBulletsContainer}>
-                  {article.bullets.slice(0, 2).map((bullet, index) => {
-                    const cleanBullet = bullet.replace(/["“”]/g, '');
-                    return (
-                      <View key={`${article.id}-bullet-${index}`} style={styles.heroBulletItem}>
-                        <Text style={styles.heroBulletDot}>☐</Text>
-                        <Text style={styles.heroBulletText}>{cleanBullet}</Text>
-                      </View>
-                    );
-                  })}
-                </View>
-              )}
-
-              {/* Time and Source - Full Width */}
-              <View style={styles.metaRow}>
-                <Text style={styles.metaText}>
-                  {formatTimestamp(article.timestamp)}
-                </Text>
-                <Text style={styles.metaDivider}> | </Text>
-                <Text style={styles.metaText}>{article.provider}</Text>
-              </View>
             </View>
           </View>
 
-          {/* White Section - Tickers and Summary */}
-          <View style={styles.whiteSection}>
-            {/* Tickers */}
-            {article.tickers && article.tickers.length > 0 && (
-              article.tickers.length > 1 ? (
-                // Horizontal scroll for multiple tickers
+          {/* Content Section */}
+          <View style={styles.contentSection}>
+            {/* Topic + Follow */}
+            {primaryTopic && (
+              <View style={styles.topicRow}>
+                <View style={styles.topicPill}>
+                  <Text style={styles.topicPillText}>{primaryTopic.name}</Text>
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.followButton,
+                    isFollowingTopic && styles.followButtonActive,
+                  ]}
+                  onPress={() => handleToggleFollowTopic(primaryTopic.id)}
+                >
+                  <Text style={[
+                    styles.followButtonText,
+                    isFollowingTopic && styles.followButtonTextActive,
+                  ]}>
+                    {isFollowingTopic ? 'Following' : 'Follow'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Title */}
+            <Text style={styles.title}>{article.title}</Text>
+
+            {/* Bullet Points */}
+            {article.bullets && article.bullets.length > 0 && (
+              <View style={styles.bulletsContainer}>
+                {article.bullets.slice(0, 3).map((bullet, index) => {
+                  const cleanBullet = bullet.replace(/["""]/g, '');
+                  return (
+                    <View key={`${article.id}-bullet-${index}`} style={styles.bulletItem}>
+                      <View style={styles.bulletDot} />
+                      <Text style={styles.bulletText}>{cleanBullet}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
+            {/* Time and Provider */}
+            <View style={styles.metaRow}>
+              <Ionicons name="time-outline" size={14} color="#999" />
+              <Text style={styles.metaTime}>
+                {formatTimestamp(article.timestamp)}
+              </Text>
+              <Text style={styles.metaDivider}>|</Text>
+              <TouchableOpacity
+                style={styles.providerLink}
+                onPress={() => handleOpenArticle(article.provider_url)}
+              >
+                <Ionicons name="link-outline" size={14} color="#007AFF" />
+                <Text style={styles.providerText}>{article.provider}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Tickers */}
+          {article.tickers && article.tickers.length > 0 && (
+            <View style={styles.tickersWrapper}>
+              {article.tickers.length > 1 ? (
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
@@ -374,9 +432,7 @@ export default function SwipeScreen() {
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
-
               ) : (
-                // Single ticker (normal layout)
                 <View style={styles.tickersSection}>
                   {article.tickers.map((ticker, index) => (
                     <TouchableOpacity
@@ -405,29 +461,28 @@ export default function SwipeScreen() {
                     </TouchableOpacity>
                   ))}
                 </View>
-              )
-            )}
+              )}
+            </View>
+          )}
 
-
-            {/* Summary */}
-            {article.summary && (
-              <TouchableOpacity
-                style={styles.summarySection}
-                onPress={() => toggleSummaryExpanded(article.id)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.summaryText} numberOfLines={isSummaryExpanded ? undefined : article.tickers.length > 0 ? 3 : 7}>
-                  {article.summary}
-                  {!isSummaryExpanded && article.summary.length > 150 && (
-                    <Text style={styles.moreText}> more...</Text>
-                  )}
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
+          {/* Summary */}
+          {article.summary && (
+            <TouchableOpacity
+              style={styles.summarySection}
+              onPress={() => toggleSummaryExpanded(article.id)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.summaryText} numberOfLines={isSummaryExpanded ? undefined : article.tickers.length > 0 ? 3 : 7}>
+                {article.summary}
+                {!isSummaryExpanded && article.summary.length > 150 && (
+                  <Text style={styles.moreText}> more...</Text>
+                )}
+              </Text>
+            </TouchableOpacity>
+          )}
         </ScrollView>
 
-        {/* Expanded Summary Overlay - Instagram Reels Style */}
+        {/* Expanded Summary Overlay */}
         {isSummaryExpanded && (
           <View style={styles.summaryOverlay}>
             <TouchableOpacity
@@ -447,12 +502,19 @@ export default function SwipeScreen() {
                 style={styles.summaryScrollView}
                 contentContainerStyle={styles.summaryScrollContent}
                 showsVerticalScrollIndicator={true}
-                nestedScrollEnabled={true} // ✅
-                keyboardShouldPersistTaps="handled" // ✅
+                nestedScrollEnabled={true}
+                keyboardShouldPersistTaps="handled"
               >
                 <Text style={styles.summaryOverlayText}>{article.summary}</Text>
               </ScrollView>
             </View>
+          </View>
+        )}
+
+        {/* Off-screen share card for screenshot */}
+        {sharingArticleId === article.id && (
+          <View style={styles.shareCardContainer}>
+            {renderShareCard(article)}
           </View>
         )}
       </View>
@@ -581,7 +643,7 @@ export default function SwipeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#fff',
   },
   keyboardAvoidingView: {
     flex: 1,
@@ -601,167 +663,148 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
-  // Hero Section - Dynamic height
-  heroSection: {
-    minHeight: 500,
-    position: 'relative',
-    backgroundColor: '#1a1a1a',
-  },
-
-  // Image Container - Top aligned
-  imageContainer: {
-    width: '100%',
-    height: 280,
-    position: 'relative',
-    backgroundColor: '#1a1a1a',
-  },
-  heroImageBackground: {
-    position: 'absolute',
-    width: '100%',
-    height: '100%',
-    top: 0,
-  },
-  heroImageMain: {
-    position: 'absolute',
-    width: '100%',
-    top: 0,
-    height: 280,
-  },
-  placeholderHero: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#1a1a1a',
-    justifyContent: 'center',
+  // Top Bar
+  topBar: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E5E7EB',
   },
-
-  // Gradient overlay - starts earlier and stays solid longer
-  gradientOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-
-  // Back Button - Top Left
   backButton: {
-    position: 'absolute',
-    top: 24,
-    left: 20,
-    zIndex: 10,
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#fff',
+    backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
-    boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.3)',
-    elevation: 6,
   },
-
-  // Floating Action Buttons
-  floatingActionButtons: {
-    position: 'absolute',
-    bottom: 24,
-    right: 20,
-    zIndex: 10,
-    gap: 12,
+  topBarActions: {
+    flexDirection: 'row',
+    gap: 8,
   },
-  floatingActionButton: {
+  actionButton: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#fff',
+    backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
-    boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.3)',
-    elevation: 6,
   },
 
-  heroContent: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 20,
-    paddingRight: 90,
-    paddingBottom: 24,
+  // Content Section
+  contentSection: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
   },
 
+  // Topic + Follow
   topicRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
-    flexWrap: 'wrap',
+    marginBottom: 16,
+    gap: 12,
   },
-  topicName: {
+  topicPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 16,
+    backgroundColor: '#EEF2FF',
+  },
+  topicPillText: {
     fontSize: 12,
-    fontWeight: '400',
-    color: '#fff',
-    marginRight: 12,
+    fontWeight: '600',
+    color: '#4F46E5',
   },
   followButton: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 5,
     borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderColor: '#D1D5DB',
+  },
+  followButtonActive: {
+    backgroundColor: '#EEF2FF',
+    borderColor: '#4F46E5',
   },
   followButtonText: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '600',
-    color: '#fff',
+    color: '#6B7280',
+  },
+  followButtonTextActive: {
+    color: '#4F46E5',
   },
 
-  heroTitle: {
-    fontSize: 24,
+  // Title
+  title: {
+    fontSize: 22,
     fontWeight: 'bold',
-    color: '#fff',
+    color: '#111827',
     lineHeight: 30,
-    marginBottom: 14,
+    marginBottom: 16,
   },
 
-  heroBulletsContainer: {
-    marginBottom: 14,
+  // Bullets
+  bulletsContainer: {
+    marginBottom: 16,
   },
-  heroBulletItem: {
+  bulletItem: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 8,
+    marginBottom: 10,
   },
-  heroBulletDot: {
-    fontSize: 10,
-    color: '#fff',
-    marginRight: 10,
-    marginTop: 2,
+  bulletDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#4F46E5',
+    marginRight: 12,
+    marginTop: 7,
   },
-  heroBulletText: {
+  bulletText: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 15,
     lineHeight: 22,
-    color: '#fff',
+    color: '#374151',
   },
 
+  // Meta Row
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#E5E7EB',
   },
-  metaText: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.8)',
+  metaTime: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    marginLeft: 4,
   },
   metaDivider: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.5)',
-    marginHorizontal: 4,
+    fontSize: 13,
+    color: '#D1D5DB',
+    marginHorizontal: 8,
+  },
+  providerLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  providerText: {
+    fontSize: 13,
+    color: '#007AFF',
+    fontWeight: '500',
   },
 
-  whiteSection: {
-    backgroundColor: '#fff',
-    padding: 20,
-    paddingBottom: 30,
+  // Tickers
+  tickersWrapper: {
+    paddingHorizontal: 20,
+    marginBottom: 12,
   },
   tickersSection: {
     marginBottom: 10,
@@ -803,13 +846,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#666',
   },
-
   tickersScrollContainer: {
     paddingVertical: 4,
     paddingLeft: 4,
     paddingRight: 12,
   },
-
   tickerCardSmall: {
     width: 160,
     flexDirection: 'row',
@@ -820,38 +861,23 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
 
+  // Summary
   summarySection: {
+    paddingHorizontal: 20,
     marginBottom: 24,
-    marginHorizontal: 10,
   },
   summaryText: {
-    fontSize: 16,
+    fontSize: 15,
     lineHeight: 24,
-    color: '#333',
+    color: '#4B5563',
   },
   moreText: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#007AFF',
     fontWeight: '600',
-  },
-  readArticleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#007AFF',
-    backgroundColor: '#fff',
-    gap: 8,
-  },
-  readArticleButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#007AFF',
   },
 
+  // No More Cards
   noMoreCards: {
     justifyContent: 'center',
     alignItems: 'center',
@@ -891,18 +917,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
-  // Fixed Input Container at Bottom
+  // Input Container
   inputContainer: {
     backgroundColor: '#fff',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    boxShadow: '0px -2px 4px rgba(0, 0, 0, 0.1)',
-    elevation: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#E5E7EB',
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#F3F4F6',
     borderRadius: 24,
     paddingHorizontal: 16,
     paddingVertical: 10,
@@ -924,7 +950,7 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
 
-  // Summary Overlay - Instagram Reels Style
+  // Summary Overlay
   summaryOverlay: {
     position: 'absolute',
     top: 0,
@@ -973,5 +999,90 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
     color: '#333',
+  },
+
+  // Share Card (off-screen for screenshot capture)
+  shareCardContainer: {
+    position: 'absolute',
+    left: -9999,
+    top: 0,
+  },
+  shareCard: {
+    width: width - 40,
+    backgroundColor: '#fff',
+    padding: 24,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  shareTopicPill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 16,
+    backgroundColor: '#EEF2FF',
+    marginBottom: 14,
+  },
+  shareTopicText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#4F46E5',
+  },
+  shareTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#111827',
+    lineHeight: 28,
+    marginBottom: 14,
+  },
+  shareBulletsContainer: {
+    marginBottom: 14,
+  },
+  shareBulletItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  shareBulletDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#4F46E5',
+    marginRight: 10,
+    marginTop: 6,
+  },
+  shareBulletText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#374151',
+  },
+  shareMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  shareMetaText: {
+    fontSize: 12,
+    color: '#9CA3AF',
+  },
+  shareMetaDivider: {
+    fontSize: 12,
+    color: '#D1D5DB',
+  },
+  shareBrandingFooter: {
+    alignItems: 'center',
+  },
+  shareBrandingDivider: {
+    width: '100%',
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#E5E7EB',
+    marginBottom: 12,
+  },
+  shareBrandingText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#9CA3AF',
+    letterSpacing: 0.5,
   },
 });
