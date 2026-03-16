@@ -63,6 +63,7 @@ export default {
         projectId: "09bc2f93-b518-4358-8ca9-07ded68f461e"
       },
       apiBaseUrl: process.env.API_BASE_URL,
+      logoDevToken: process.env.LOGO_DEV_TOKEN,
     },
     owner: "sensybull",
     runtimeVersion: {

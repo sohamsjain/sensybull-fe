@@ -1,85 +1,133 @@
 // app/services/api.ts
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import Constants from 'expo-constants';
+import * as SecureStore from 'expo-secure-store';
+import { Config, validateConfig } from '../utils/config';
+import { ApiError, NetworkError } from '../utils/errors';
+import { logger } from '../utils/logger';
 
-console.log('Expo Config Extra:', Constants.expoConfig?.extra);
-console.log('API Base URL:', Constants.expoConfig?.extra?.apiBaseUrl);
-
-const API_BASE_URL = Constants.expoConfig?.extra?.apiBaseUrl;
+const API_BASE_URL = Config.apiBaseUrl;
 
 class ApiService {
   private token: string | null = null;
+  private tokenLoaded: Promise<void>;
 
   constructor() {
-    this.loadToken();
+    validateConfig();
+    this.tokenLoaded = this.loadToken();
   }
 
   private async loadToken() {
     try {
-      this.token = await AsyncStorage.getItem('access_token');
+      this.token = await SecureStore.getItemAsync('access_token');
     } catch (error) {
-      console.error('Error loading token:', error);
+      logger.error('Error loading token:', error);
     }
   }
 
   private async saveToken(token: string) {
     try {
-      await AsyncStorage.setItem('access_token', token);
+      await SecureStore.setItemAsync('access_token', token);
       this.token = token;
     } catch (error) {
-      console.error('Error saving token:', error);
+      logger.error('Error saving token:', error);
+    }
+  }
+
+  private async saveRefreshToken(token: string) {
+    try {
+      await SecureStore.setItemAsync('refresh_token', token);
+    } catch (error) {
+      logger.error('Error saving refresh token:', error);
     }
   }
 
   private async clearToken() {
     try {
-      await AsyncStorage.removeItem('access_token');
-      await AsyncStorage.removeItem('refresh_token');
+      await SecureStore.deleteItemAsync('access_token');
+      await SecureStore.deleteItemAsync('refresh_token');
       this.token = null;
     } catch (error) {
-      console.error('Error clearing token:', error);
+      logger.error('Error clearing token:', error);
     }
   }
 
   private async getHeaders(includeAuth = true) {
+    await this.tokenLoaded;
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
     };
-    
+
     if (includeAuth && this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
-    
+
     return headers;
+  }
+
+  private async tryRefreshToken(): Promise<boolean> {
+    try {
+      const refreshToken = await SecureStore.getItemAsync('refresh_token');
+      if (!refreshToken) return false;
+
+      const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+
+      if (!response.ok) return false;
+
+      const data = await response.json();
+      if (data.access_token) {
+        await this.saveToken(data.access_token);
+        if (data.refresh_token) {
+          await this.saveRefreshToken(data.refresh_token);
+        }
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
   }
 
   private async handleResponse(response: Response) {
     if (response.status === 401) {
-      // Token expired or invalid
-      await this.clearToken();
-      throw new Error('Authentication required');
+      // Attempt token refresh before giving up
+      const refreshed = await this.tryRefreshToken();
+      if (!refreshed) {
+        await this.clearToken();
+        throw new ApiError('Authentication required', 401, true);
+      }
+      // If refreshed, caller should retry — but for simplicity, we throw
+      // and let the UI re-authenticate
+      throw new ApiError('Session refreshed, please retry', 401, true);
     }
-    
+
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: 'Request failed' }));
-      throw new Error(error.error || 'Request failed');
+      throw new ApiError(error.error || 'Request failed', response.status);
     }
-    
+
     return response.json();
   }
 
+  // ────────────────────────────────────────────
   // Auth endpoints
+  // ────────────────────────────────────────────
+
   async register(name: string, email: string, password: string) {
     const response = await fetch(`${API_BASE_URL}/auth/register`, {
       method: 'POST',
       headers: await this.getHeaders(false),
       body: JSON.stringify({ name, email, password }),
     });
-    
+
     const data = await this.handleResponse(response);
     if (data.access_token) {
       await this.saveToken(data.access_token);
-      await AsyncStorage.setItem('refresh_token', data.refresh_token);
+      if (data.refresh_token) {
+        await this.saveRefreshToken(data.refresh_token);
+      }
     }
     return data;
   }
@@ -90,11 +138,13 @@ class ApiService {
       headers: await this.getHeaders(false),
       body: JSON.stringify({ email, password }),
     });
-    
+
     const data = await this.handleResponse(response);
     if (data.access_token) {
       await this.saveToken(data.access_token);
-      await AsyncStorage.setItem('refresh_token', data.refresh_token);
+      if (data.refresh_token) {
+        await this.saveRefreshToken(data.refresh_token);
+      }
     }
     return data;
   }
@@ -110,7 +160,10 @@ class ApiService {
     return this.handleResponse(response);
   }
 
+  // ────────────────────────────────────────────
   // Articles endpoints
+  // ────────────────────────────────────────────
+
   async getArticles(params: {
     page?: number;
     per_page?: number;
@@ -125,7 +178,7 @@ class ApiService {
         queryParams.append(key, value.toString());
       }
     });
-    
+
     const url = `${API_BASE_URL}/articles?${queryParams}`;
     const response = await fetch(url, {
       headers: await this.getHeaders(),
@@ -160,7 +213,10 @@ class ApiService {
     return this.handleResponse(response);
   }
 
+  // ────────────────────────────────────────────
   // Tickers endpoints
+  // ────────────────────────────────────────────
+
   async searchTickers(query: string, page = 1, perPage = 10) {
     const response = await fetch(
       `${API_BASE_URL}/tickers?q=${encodeURIComponent(query)}&page=${page}&per_page=${perPage}`,
@@ -254,7 +310,10 @@ class ApiService {
     return this.handleResponse(response);
   }
 
+  // ────────────────────────────────────────────
   // Topics endpoints
+  // ────────────────────────────────────────────
+
   async getAllTopics(params: {
     q?: string;
     page?: number;
@@ -266,7 +325,7 @@ class ApiService {
         queryParams.append(key, value.toString());
       }
     });
-    
+
     const url = `${API_BASE_URL}/topics?${queryParams}`;
     const response = await fetch(url, {
       headers: await this.getHeaders(),

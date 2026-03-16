@@ -13,28 +13,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import api from '../services/api';
+import type { Article, Topic } from '../types';
+import { formatTimestamp } from '../utils/format';
+import { getTickerLogoUrl } from '../utils/images';
+import { logger } from '../utils/logger';
 
 const DEFAULT_IMAGE = require('../../assets/images/default.jpg');
-
-// --- Types
-interface Topic {
-  id: string;
-  name: string;
-}
-
-interface Article {
-  id: string;
-  title: string;
-  summary: string;
-  bullets: string[];
-  url: string;
-  provider: string;
-  provider_url: string;
-  timestamp: number;
-  image_url?: string;
-  tickers: Array<{ symbol: string; name: string }>;
-  topics: Array<{ id: string; name: string }>;
-}
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -50,10 +34,10 @@ export default function HomeScreen() {
   const [watchlistSymbols, setWatchlistSymbols] = useState<Set<string>>(new Set());
 
   // Articles state
-  const [articlesByTopic, setArticlesByTopic] = useState<Map<string, Article[]>>(new Map());
+  const [articlesByTopic, setArticlesByTopic] = useState<Record<string, Article[]>>({});
   const [loadingArticles, setLoadingArticles] = useState(false);
-  const [page, setPage] = useState<Map<string, number>>(new Map());
-  const [hasMore, setHasMore] = useState<Map<string, boolean>>(new Map());
+  const [pageByTopic, setPageByTopic] = useState<Record<string, number>>({});
+  const [hasMoreByTopic, setHasMoreByTopic] = useState<Record<string, boolean>>({});
 
   // Load topics and watchlist on mount
   useEffect(() => {
@@ -65,7 +49,7 @@ export default function HomeScreen() {
   useEffect(() => {
     if (topics.length > 0) {
       const selectedTopic = topics[selectedTopicIndex];
-      if (!articlesByTopic.has(selectedTopic.id)) {
+      if (!articlesByTopic[selectedTopic.id]) {
         loadArticlesForTopic(selectedTopic.id, 1);
       }
     }
@@ -83,7 +67,7 @@ export default function HomeScreen() {
         setTopics([FOR_YOU_TAB]);
       }
     } catch (error) {
-      console.error('Error loading topics:', error);
+      logger.error('Error loading topics:', error);
     } finally {
       setLoadingTopics(false);
     }
@@ -96,7 +80,7 @@ export default function HomeScreen() {
         setWatchlistSymbols(new Set(response.tickers.map((t: { symbol: string }) => t.symbol)));
       }
     } catch (error) {
-      console.error('Error loading watchlist tickers:', error);
+      logger.error('Error loading watchlist tickers:', error);
     }
   };
 
@@ -111,7 +95,7 @@ export default function HomeScreen() {
         response = await api.getTopicArticles(topicId, pageNum, 20);
       }
 
-      const existingArticles = articlesByTopic.get(topicId) || [];
+      const existingArticles = articlesByTopic[topicId] || [];
       const existingIds = new Set(existingArticles.map(a => a.id));
 
       // Deduplicate: only add articles we don't already have
@@ -121,22 +105,17 @@ export default function HomeScreen() {
         ? response.articles
         : [...existingArticles, ...newUniqueArticles];
 
-      setArticlesByTopic(prev => new Map(prev).set(topicId, newArticles));
-      setPage(prev => new Map(prev).set(topicId, pageNum));
-      setHasMore(prev => new Map(prev).set(topicId, response.pagination.has_next));
+      setArticlesByTopic(prev => ({ ...prev, [topicId]: newArticles }));
+      setPageByTopic(prev => ({ ...prev, [topicId]: pageNum }));
+      setHasMoreByTopic(prev => ({ ...prev, [topicId]: response.pagination.has_next }));
     } catch (error) {
-      console.error('Error loading articles:', error);
+      logger.error('Error loading articles:', error);
     } finally {
       setLoadingArticles(false);
     }
   };
 
   // --- Image helpers
-  const getTickerLogoUrl = (symbol: string) => {
-    const token = 'pk_NquCcOJqSl2ZVNwLRKmfjw';
-    return `https://img.logo.dev/ticker/${encodeURIComponent(symbol)}?token=${token}&size=300&square=true&retina=true`;
-  };
-
   const getTickerLogoUriForArticle = (article: Article): string | undefined => {
     if (article.tickers && article.tickers.length > 0 && article.tickers[0].symbol) {
       return getTickerLogoUrl(article.tickers[0].symbol);
@@ -153,8 +132,8 @@ export default function HomeScreen() {
   const handleLoadMore = () => {
     if (topics.length > 0 && !loadingArticles) {
       const selectedTopic = topics[selectedTopicIndex];
-      const currentPage = page.get(selectedTopic.id) || 1;
-      const hasMorePages = hasMore.get(selectedTopic.id) ?? true;
+      const currentPage = pageByTopic[selectedTopic.id] || 1;
+      const hasMorePages = hasMoreByTopic[selectedTopic.id] ?? true;
 
       if (hasMorePages) {
         loadArticlesForTopic(selectedTopic.id, currentPage + 1);
@@ -164,7 +143,7 @@ export default function HomeScreen() {
 
   const handleArticlePress = (article: Article) => {
     const selectedTopic = topics[selectedTopicIndex];
-    const allArticles = articlesByTopic.get(selectedTopic.id) || [];
+    const allArticles = articlesByTopic[selectedTopic.id] || [];
 
     router.push({
       pathname: '/swipe',
@@ -176,20 +155,6 @@ export default function HomeScreen() {
     });
   };
 
-  const formatTimestamp = (timestamp: number) => {
-    const now = Date.now();
-    const diff = now - timestamp * 1000;
-    const hours = Math.floor(diff / (1000 * 60 * 60));
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-
-    if (hours < 1) return 'Just now';
-    if (hours < 24) return `${hours}h ago`;
-    if (days < 7) return `${days}d ago`;
-
-    const date = new Date(timestamp * 1000);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
-
   // --- Renderers
   const renderArticleRow = ({ item }: { item: Article }) => {
     const logoUri = getTickerLogoUriForArticle(item);
@@ -199,6 +164,8 @@ export default function HomeScreen() {
         style={styles.row}
         onPress={() => handleArticlePress(item)}
         activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel={`Article: ${item.title}`}
       >
         <Image
           source={logoUri ? { uri: logoUri } : DEFAULT_IMAGE}
@@ -255,6 +222,8 @@ export default function HomeScreen() {
           <TouchableOpacity
             style={styles.exploreButton}
             onPress={() => router.push('/swipe')}
+            accessibilityRole="button"
+            accessibilityLabel="Explore Topics"
           >
             <Text style={styles.exploreButtonText}>Explore Topics</Text>
           </TouchableOpacity>
@@ -282,7 +251,7 @@ export default function HomeScreen() {
   }
 
   const selectedTopic = topics[selectedTopicIndex];
-  let articles = selectedTopic ? articlesByTopic.get(selectedTopic.id) || [] : [];
+  let articles = selectedTopic ? articlesByTopic[selectedTopic.id] || [] : [];
 
   // Filter watchlist tab: only show articles with at least one ticker in watchlist
   if (selectedTopic?.id === 'for-you' && watchlistSymbols.size > 0) {
@@ -305,6 +274,8 @@ export default function HomeScreen() {
               <TouchableOpacity
                 style={styles.tab}
                 onPress={() => handleTopicChange(index)}
+                accessibilityRole="tab"
+                accessibilityLabel={item.name}
               >
                 <Text
                   style={[

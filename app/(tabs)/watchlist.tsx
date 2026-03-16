@@ -1,7 +1,7 @@
 // app/(tabs)/watchlist.tsx
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -15,20 +15,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import api from '../services/api';
-
-interface Ticker {
-    id: string;
-    symbol: string;
-    name: string;
-    last_price?: number;
-    last_updated?: string;
-}
-
-interface LivePrice {
-    price: number;
-    prev_close: number;
-    change_percent: number;
-}
+import type { Ticker, LivePrice } from '../types';
+import { getErrorMessage } from '../utils/errors';
+import { formatPrice } from '../utils/format';
+import { getTickerLogoUrl } from '../utils/images';
+import { logger } from '../utils/logger';
+import { sanitizeInput } from '../utils/sanitize';
 
 export default function WatchlistScreen() {
     const router = useRouter();
@@ -50,8 +42,8 @@ export default function WatchlistScreen() {
             const symbols = tickers.map(t => t.symbol);
             const response = await api.getBatchSnapshots(symbols);
             setLivePrices(response.prices || {});
-        } catch (error) {
-            console.error('Error loading live prices:', error);
+        } catch (error: unknown) {
+            logger.error('Error loading live prices:', error);
         }
     };
 
@@ -62,34 +54,37 @@ export default function WatchlistScreen() {
             const tickers = response.tickers || [];
             setWatchlist(tickers);
             await loadLivePrices(tickers);
-        } catch (error) {
-            console.error('Error loading watchlist:', error);
+        } catch (error: unknown) {
+            logger.error('Error loading watchlist:', error);
             Alert.alert('Error', 'Failed to load your watchlist');
         } finally {
             setLoading(false);
         }
     };
 
-    const handleSearch = useCallback(async (query: string) => {
-        setSearchQuery(query);
-
-        if (!query.trim()) {
-            setSearchResults([]);
-            setIsSearchMode(false);
-            return;
-        }
-
-        setIsSearchMode(true);
-        setSearching(true);
-
-        try {
-            const response = await api.searchTickers(query, 1, 20);
-            setSearchResults(response.tickers || []);
-        } catch (error) {
-            console.error('Error searching tickers:', error);
-        } finally {
-            setSearching(false);
-        }
+    const debouncedSearch = useMemo(() => {
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+        return (query: string) => {
+            setSearchQuery(query);
+            if (!query.trim()) {
+                setSearchResults([]);
+                setIsSearchMode(false);
+                return;
+            }
+            setIsSearchMode(true);
+            if (timeoutId) clearTimeout(timeoutId);
+            timeoutId = setTimeout(async () => {
+                setSearching(true);
+                try {
+                    const response = await api.searchTickers(sanitizeInput(query), 1, 20);
+                    setSearchResults(response.tickers || []);
+                } catch (error: unknown) {
+                    logger.error('Error searching tickers:', error);
+                } finally {
+                    setSearching(false);
+                }
+            }, 300);
+        };
     }, []);
 
     const handleFollowTicker = async (ticker: Ticker) => {
@@ -101,9 +96,9 @@ export default function WatchlistScreen() {
             setSearchResults(prev => prev.filter(t => t.id !== ticker.id));
 
             Alert.alert('Success', `Added ${ticker.symbol} to your watchlist`);
-        } catch (error: any) {
-            console.error('Error following ticker:', error);
-            Alert.alert('Error', error.message || 'Failed to add ticker to watchlist');
+        } catch (error: unknown) {
+            logger.error('Error following ticker:', error);
+            Alert.alert('Error', getErrorMessage(error) || 'Failed to add ticker to watchlist');
         }
     };
 
@@ -120,9 +115,9 @@ export default function WatchlistScreen() {
                         try {
                             await api.unfollowTicker(ticker.symbol);
                             setWatchlist(prev => prev.filter(t => t.id !== ticker.id));
-                        } catch (error: any) {
-                            console.error('Error unfollowing ticker:', error);
-                            Alert.alert('Error', error.message || 'Failed to remove ticker from watchlist');
+                        } catch (error: unknown) {
+                            logger.error('Error unfollowing ticker:', error);
+                            Alert.alert('Error', getErrorMessage(error) || 'Failed to remove ticker from watchlist');
                         }
                     },
                 },
@@ -130,17 +125,12 @@ export default function WatchlistScreen() {
         );
     };
 
-    const getTickerLogoUrl = (symbol: string): string => {
-        return `https://img.logo.dev/ticker/${symbol}?token=pk_NquCcOJqSl2ZVNwLRKmfjw&format=png&theme=light&retina=true`;
-    };
-
-    const formatPrice = (symbol: string, dbPrice?: number): string => {
+    const getPriceDisplay = (symbol: string, dbPrice?: number): string => {
         const live = livePrices[symbol];
-        if (live && live.price > 0) return `$${live.price.toFixed(2)}`;
-        if (dbPrice && dbPrice > 0) return `$${dbPrice.toFixed(2)}`;
+        if (live && live.price > 0) return formatPrice(live.price);
+        if (dbPrice && dbPrice > 0) return formatPrice(dbPrice);
         return '--';
     };
-
 
     const isTickerInWatchlist = (tickerId: string): boolean => {
         return watchlist.some(t => t.id === tickerId);
@@ -155,6 +145,7 @@ export default function WatchlistScreen() {
                     params: { symbol: item.symbol }
                 })}
                 activeOpacity={0.7}
+                accessibilityLabel={`${item.symbol} ${item.name}`}
             >
                 <Image
                     source={{ uri: getTickerLogoUrl(item.symbol) }}
@@ -169,13 +160,13 @@ export default function WatchlistScreen() {
                 </View>
                 {!isSearchResult && (
                     <View style={styles.priceColumn}>
-                        <Text style={styles.tickerPrice}>{formatPrice(item.symbol, item.last_price)}</Text>
+                        <Text style={styles.tickerPrice}>{getPriceDisplay(item.symbol, item.last_price)}</Text>
                         {livePrices[item.symbol] && livePrices[item.symbol].change_percent !== 0 && (
                             <Text style={[
                                 styles.changePercent,
                                 livePrices[item.symbol].change_percent >= 0 ? styles.changeUp : styles.changeDown
                             ]}>
-                                {livePrices[item.symbol].change_percent >= 0 ? '+' : ''}
+                                {livePrices[item.symbol].change_percent >= 0 ? '▲ +' : '▼ '}
                                 {livePrices[item.symbol].change_percent.toFixed(2)}%
                             </Text>
                         )}
@@ -194,6 +185,7 @@ export default function WatchlistScreen() {
                         <TouchableOpacity
                             style={styles.addButton}
                             onPress={() => handleFollowTicker(item)}
+                            accessibilityLabel="Add to watchlist"
                         >
                             <Ionicons name="add-circle-outline" size={24} color="#007AFF" />
                         </TouchableOpacity>
@@ -202,6 +194,7 @@ export default function WatchlistScreen() {
                     <TouchableOpacity
                         style={styles.removeButton}
                         onPress={() => handleUnfollowTicker(item)}
+                        accessibilityLabel="Remove from watchlist"
                     >
                         <Ionicons name="trash-outline" size={20} color="#FF3B30" />
                     </TouchableOpacity>
@@ -258,9 +251,11 @@ export default function WatchlistScreen() {
                         placeholder="Search for stocks..."
                         placeholderTextColor="#999"
                         value={searchQuery}
-                        onChangeText={handleSearch}
+                        onChangeText={debouncedSearch}
                         autoCapitalize="characters"
                         autoCorrect={false}
+                        accessibilityLabel="Search stocks"
+                        accessibilityHint="Type a ticker symbol or company name"
                     />
                     {searchQuery.length > 0 && (
                         <TouchableOpacity
@@ -270,6 +265,7 @@ export default function WatchlistScreen() {
                                 setIsSearchMode(false);
                             }}
                             style={styles.clearButton}
+                            accessibilityLabel="Clear search"
                         >
                             <Ionicons name="close-circle" size={20} color="#999" />
                         </TouchableOpacity>

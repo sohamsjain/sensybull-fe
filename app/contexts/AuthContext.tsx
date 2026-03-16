@@ -1,14 +1,9 @@
 // app/contexts/AuthContext.tsx
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import api from '../services/api';
-
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  is_admin: boolean;
-}
+import { logger } from '../utils/logger';
+import type { User } from '../types';
 
 interface AuthContextType {
   user: User | null;
@@ -36,13 +31,13 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 
   const checkAuth = async () => {
     try {
-      const token = await AsyncStorage.getItem('access_token');
+      const token = await SecureStore.getItemAsync('access_token');
       if (token) {
         const response = await api.getCurrentUser();
         setUser(response.user);
       }
     } catch (error) {
-      console.error('Auth check failed:', error);
+      logger.error('Auth check failed:', error);
       setUser(null);
     } finally {
       setIsLoading(false);
@@ -54,21 +49,13 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   }, []);
 
   const login = async (email: string, password: string) => {
-    try {
-      const response = await api.login(email, password);
-      setUser(response.user);
-    } catch (error) {
-      throw error;
-    }
+    const response = await api.login(email, password);
+    setUser(response.user);
   };
 
   const register = async (name: string, email: string, password: string) => {
-    try {
-      const response = await api.register(name, email, password);
-      setUser(response.user);
-    } catch (error) {
-      throw error;
-    }
+    const response = await api.register(name, email, password);
+    setUser(response.user);
   };
 
   const logout = async () => {

@@ -1,8 +1,9 @@
 // app/services/groq.ts
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import Constants from 'expo-constants';
+import * as SecureStore from 'expo-secure-store';
+import { Config } from '../utils/config';
+import { sanitizeInput } from '../utils/sanitize';
 
-const API_BASE_URL = Constants.expoConfig?.extra?.apiBaseUrl;
+const API_BASE_URL = Config.apiBaseUrl;
 
 export interface Message {
     role: 'system' | 'user' | 'assistant';
@@ -21,7 +22,13 @@ class ChatService {
         messages: Message[],
         articleContext?: ArticleContext
     ): Promise<string> {
-        const token = await AsyncStorage.getItem('access_token');
+        const token = await SecureStore.getItemAsync('access_token');
+
+        // Sanitize user messages
+        const sanitizedMessages = messages.map(m => ({
+            ...m,
+            content: m.role === 'user' ? sanitizeInput(m.content) : m.content,
+        }));
 
         const response = await fetch(`${API_BASE_URL}/chat`, {
             method: 'POST',
@@ -30,7 +37,7 @@ class ChatService {
                 ...(token ? { Authorization: `Bearer ${token}` } : {}),
             },
             body: JSON.stringify({
-                messages,
+                messages: sanitizedMessages,
                 article_context: articleContext
                     ? {
                           title: articleContext.title,
