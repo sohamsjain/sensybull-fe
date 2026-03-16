@@ -16,6 +16,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
+import { getErrorMessage } from '../utils/errors';
+import { isValidEmail, validatePassword } from '../utils/validation';
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -33,13 +35,19 @@ export default function RegisterScreen() {
       return;
     }
 
+    if (!isValidEmail(email)) {
+      Alert.alert('Error', 'Please enter a valid email address');
+      return;
+    }
+
     if (password !== confirmPassword) {
       Alert.alert('Error', 'Passwords do not match');
       return;
     }
 
-    if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
+    const passwordCheck = validatePassword(password);
+    if (!passwordCheck.valid) {
+      Alert.alert('Error', passwordCheck.message);
       return;
     }
 
@@ -47,8 +55,8 @@ export default function RegisterScreen() {
     try {
       await register(name, email, password);
       router.replace('/(tabs)');
-    } catch (error: any) {
-      Alert.alert('Registration Failed', error.message || 'Please try again');
+    } catch (error: unknown) {
+      Alert.alert('Registration Failed', getErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -60,7 +68,7 @@ export default function RegisterScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
       >
-        <ScrollView 
+        <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
@@ -81,6 +89,7 @@ export default function RegisterScreen() {
                 onChangeText={setName}
                 autoCapitalize="words"
                 editable={!loading}
+                accessibilityLabel="Full name"
               />
             </View>
 
@@ -95,6 +104,7 @@ export default function RegisterScreen() {
                 autoCapitalize="none"
                 keyboardType="email-address"
                 editable={!loading}
+                accessibilityLabel="Email address"
               />
             </View>
 
@@ -108,10 +118,13 @@ export default function RegisterScreen() {
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
                 editable={!loading}
+                accessibilityLabel="Password"
               />
               <TouchableOpacity
                 onPress={() => setShowPassword(!showPassword)}
                 style={styles.eyeIcon}
+                accessibilityRole="button"
+                accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
               >
                 <Ionicons
                   name={showPassword ? 'eye-outline' : 'eye-off-outline'}
@@ -131,6 +144,7 @@ export default function RegisterScreen() {
                 onChangeText={setConfirmPassword}
                 secureTextEntry={!showPassword}
                 editable={!loading}
+                accessibilityLabel="Confirm password"
               />
             </View>
 
@@ -138,6 +152,8 @@ export default function RegisterScreen() {
               style={[styles.registerButton, loading && styles.disabledButton]}
               onPress={handleRegister}
               disabled={loading}
+              accessibilityRole="button"
+              accessibilityLabel="Create account"
             >
               {loading ? (
                 <ActivityIndicator color="#fff" />

@@ -17,42 +17,19 @@ import {
 import { LineChart } from 'react-native-chart-kit';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import api from '../services/api';
+import { Article, PricePoint, Ticker } from '../types';
+import { getErrorMessage } from '../utils/errors';
+import { formatChartDate, formatPrice, formatTimestampDetailed } from '../utils/format';
+import { logger } from '../utils/logger';
 
 const { width, height } = Dimensions.get('window');
 const CHART_HEIGHT = height * 0.3;
 const TIMELINE_HEIGHT = height * 0.7;
 
-interface Article {
-  id: string;
-  title: string;
-  summary: string;
-  bullets: string[];
-  url: string;
-  provider: string;
-  provider_url: string;
-  timestamp: number;
-  image_url?: string;
-  tickers: Array<{ id: string; symbol: string; name: string }>;
-  topics: Array<{ id: string; name: string }>;
-}
-
-interface Ticker {
-  id: string;
-  symbol: string;
-  name: string;
-  last_price?: number;
-  last_updated?: string;
-}
-
-interface PricePoint {
-  timestamp: number;
-  price: number;
-}
-
 export default function StockDetailScreen() {
   const { symbol } = useLocalSearchParams<{ symbol: string }>();
   const router = useRouter();
-  
+
   const [ticker, setTicker] = useState<Ticker | null>(null);
   const [articles, setArticles] = useState<Article[]>([]);
   const [priceData, setPriceData] = useState<PricePoint[]>([]);
@@ -95,8 +72,8 @@ export default function StockDetailScreen() {
       if (snapshotResponse.price) {
         setSnapshotPrice(snapshotResponse.price);
       }
-    } catch (error) {
-      console.error('Error loading price data:', error);
+    } catch (error: unknown) {
+      logger.error('Error loading price data:', error);
     }
   };
 
@@ -111,9 +88,9 @@ export default function StockDetailScreen() {
         (t: Ticker) => t.symbol === symbol
       );
       setIsFollowing(isFollowed);
-    } catch (error) {
-      console.error('Error loading ticker:', error);
-      Alert.alert('Error', 'Failed to load stock information');
+    } catch (error: unknown) {
+      logger.error('Error loading ticker:', error);
+      Alert.alert('Error', getErrorMessage(error));
     }
   };
 
@@ -134,9 +111,9 @@ export default function StockDetailScreen() {
 
       setPage(pageNum);
       setHasMore(response.articles.length === 20);
-    } catch (error) {
-      console.error('Error loading articles:', error);
-      Alert.alert('Error', 'Failed to load articles');
+    } catch (error: unknown) {
+      logger.error('Error loading articles:', error);
+      Alert.alert('Error', getErrorMessage(error));
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -154,9 +131,9 @@ export default function StockDetailScreen() {
         await api.followTicker(ticker.symbol);
         setIsFollowing(true);
       }
-    } catch (error) {
-      console.error('Error toggling follow:', error);
-      Alert.alert('Error', 'Failed to update watchlist');
+    } catch (error: unknown) {
+      logger.error('Error toggling follow:', error);
+      Alert.alert('Error', getErrorMessage(error));
     }
   };
 
@@ -164,31 +141,6 @@ export default function StockDetailScreen() {
     Linking.openURL(url).catch(() => {
       Alert.alert('Error', 'Failed to open article');
     });
-  };
-
-  const formatTimestamp = (timestamp: number) => {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins} ${diffMins === 1 ? 'minute' : 'minutes'} ago`;
-    if (diffHours < 24) return `${diffHours} ${diffHours === 1 ? 'hour' : 'hours'} ago`;
-    if (diffDays < 7) return `${diffDays} ${diffDays === 1 ? 'day' : 'days'} ago`;
-    return date.toLocaleDateString();
-  };
-
-  const formatChartDate = (timestamp: number): string => {
-    const date = new Date(timestamp * 1000);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
-
-  const formatPrice = (price?: number): string => {
-    if (!price) return 'N/A';
-    return `$${price.toFixed(2)}`;
   };
 
   const handleLoadMore = () => {
@@ -216,7 +168,7 @@ export default function StockDetailScreen() {
     const labels = priceData
       .filter((_, index) => index % step === 0)
       .map(p => formatChartDate(p.timestamp));
-    
+
     const data = priceData.map(p => p.price);
 
     return {
@@ -245,7 +197,7 @@ export default function StockDetailScreen() {
   const renderArticleItem = ({ item, index }: { item: Article; index: number }) => {
     const isActive = index === activeArticleIndex;
     const isLast = index === articles.length - 1;
-    
+
     return (
       <View style={styles.timelineItem}>
         {/* Timeline Connector */}
@@ -259,6 +211,8 @@ export default function StockDetailScreen() {
           style={[styles.articleCard, isActive && styles.articleCardActive]}
           onPress={() => handleOpenArticle(item.url)}
           activeOpacity={0.7}
+          accessibilityLabel={`Article: ${item.title}. From ${item.provider}. ${formatTimestampDetailed(item.timestamp)}`}
+          accessibilityRole="button"
         >
           {/* Topics */}
           {item.topics && item.topics.length > 0 && (
@@ -270,7 +224,7 @@ export default function StockDetailScreen() {
               ))}
             </View>
           )}
-          
+
           {/* Title */}
           <Text style={styles.articleTitle} numberOfLines={2}>
             {item.title}
@@ -281,7 +235,7 @@ export default function StockDetailScreen() {
             <View style={styles.providerContainer}>
               <Text style={styles.provider}>{item.provider}</Text>
             </View>
-            <Text style={styles.articleTime}>{formatTimestamp(item.timestamp)}</Text>
+            <Text style={styles.articleTime}>{formatTimestampDetailed(item.timestamp)}</Text>
           </View>
         </TouchableOpacity>
       </View>
@@ -302,20 +256,25 @@ export default function StockDetailScreen() {
   const chartData = getChartData();
   const markerPosition = getActiveArticleMarkerPosition();
   const currentPrice = snapshotPrice || (priceData.length > 0 ? priceData[priceData.length - 1].price : ticker?.last_price || 0);
-  const priceChange = priceData.length > 1 
+  const priceChange = priceData.length > 1
     ? ((priceData[priceData.length - 1].price - priceData[0].price) / priceData[0].price) * 100
     : 0;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <Stack.Screen options={{ headerShown: false }} />
-      
+
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.backButton}
+          accessibilityLabel="Go back"
+          accessibilityRole="button"
+        >
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
-        
+
         <View style={styles.headerCenter}>
           <Text style={styles.headerSymbol}>{ticker?.symbol || symbol}</Text>
           <Text style={styles.headerName} numberOfLines={1}>
@@ -326,6 +285,8 @@ export default function StockDetailScreen() {
         <TouchableOpacity
           onPress={handleToggleFollow}
           style={styles.followButton}
+          accessibilityLabel={isFollowing ? `Unfollow ${ticker?.symbol || symbol}` : `Follow ${ticker?.symbol || symbol}`}
+          accessibilityRole="button"
         >
           <Ionicons
             name={isFollowing ? 'star' : 'star-outline'}
@@ -341,10 +302,10 @@ export default function StockDetailScreen() {
         <View style={styles.priceInfo}>
           <Text style={styles.currentPrice}>{formatPrice(currentPrice)}</Text>
           <View style={[styles.priceChangeContainer, priceChange >= 0 ? styles.priceUp : styles.priceDown]}>
-            <Ionicons 
-              name={priceChange >= 0 ? 'trending-up' : 'trending-down'} 
-              size={16} 
-              color={priceChange >= 0 ? '#34C759' : '#FF3B30'} 
+            <Ionicons
+              name={priceChange >= 0 ? 'trending-up' : 'trending-down'}
+              size={16}
+              color={priceChange >= 0 ? '#34C759' : '#FF3B30'}
             />
             <Text style={[styles.priceChange, priceChange >= 0 ? styles.priceChangeUp : styles.priceChangeDown]}>
               {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
@@ -388,10 +349,10 @@ export default function StockDetailScreen() {
               withHorizontalLines={true}
               segments={4}
             />
-            
+
             {/* Active Article Marker */}
             {markerPosition !== null && (
-              <View 
+              <View
                 style={[
                   styles.chartMarker,
                   { left: markerPosition * (width - 32) + 16 }
@@ -501,7 +462,7 @@ const styles = StyleSheet.create({
   followButton: {
     padding: 8,
   },
-  
+
   // Chart Section
   chartContainer: {
     height: CHART_HEIGHT,

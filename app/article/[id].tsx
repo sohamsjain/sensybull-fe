@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import api from '../services/api';
+import { logger } from '../utils/logger';
 
 interface ArticleDetail {
   id: string;
@@ -40,7 +41,7 @@ export default function ArticleDetailScreen() {
       const response = await api.getArticle(id as string);
       setArticle(response.article);
     } catch (error) {
-      console.error('Error loading article:', error);
+      logger.error('Error loading article:', error);
       Alert.alert('Error', 'Failed to load article');
     } finally {
       setLoading(false);
@@ -93,24 +94,28 @@ export default function ArticleDetailScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <Stack.Screen 
-        options={{ 
+      <Stack.Screen
+        options={{
           title: article.provider,
           headerRight: () => (
-            <TouchableOpacity onPress={handleOpenURL}>
+            <TouchableOpacity
+              onPress={handleOpenURL}
+              accessibilityRole="button"
+              accessibilityLabel="Open original article"
+            >
               <Ionicons name="open-outline" size={22} color="#007AFF" />
             </TouchableOpacity>
           ),
-        }} 
+        }}
       />
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
           <Text style={styles.title}>{article.title}</Text>
-          
+
           <View style={styles.metaContainer}>
             <Text style={styles.provider}>{article.provider}</Text>
             <Text style={styles.date}>{formatDate(article.timestamp)}</Text>
@@ -144,7 +149,12 @@ export default function ArticleDetailScreen() {
               <Text style={styles.noContentText}>
                 Full content not available in app
               </Text>
-              <TouchableOpacity style={styles.readButton} onPress={handleOpenURL}>
+              <TouchableOpacity
+                style={styles.readButton}
+                onPress={handleOpenURL}
+                accessibilityRole="button"
+                accessibilityLabel={`Read on ${article.provider}`}
+              >
                 <Text style={styles.readButtonText}>Read on {article.provider}</Text>
                 <Ionicons name="arrow-forward" size={18} color="#fff" />
               </TouchableOpacity>
@@ -152,7 +162,12 @@ export default function ArticleDetailScreen() {
           )}
         </View>
 
-        <TouchableOpacity style={styles.sourceButton} onPress={handleOpenURL}>
+        <TouchableOpacity
+          style={styles.sourceButton}
+          onPress={handleOpenURL}
+          accessibilityRole="button"
+          accessibilityLabel="View original article"
+        >
           <Ionicons name="globe-outline" size={20} color="#007AFF" />
           <Text style={styles.sourceButtonText}>View Original Article</Text>
           <Ionicons name="chevron-forward" size={20} color="#007AFF" />

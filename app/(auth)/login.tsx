@@ -15,6 +15,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
+import { getErrorMessage } from '../utils/errors';
+import { isValidEmail } from '../utils/validation';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -30,12 +32,17 @@ export default function LoginScreen() {
       return;
     }
 
+    if (!isValidEmail(email)) {
+      Alert.alert('Error', 'Please enter a valid email address');
+      return;
+    }
+
     setLoading(true);
     try {
       await login(email, password);
       router.replace('/(tabs)');
-    } catch (error: any) {
-      Alert.alert('Login Failed', error.message || 'Invalid credentials');
+    } catch (error: unknown) {
+      Alert.alert('Login Failed', getErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -66,6 +73,8 @@ export default function LoginScreen() {
                 autoCapitalize="none"
                 keyboardType="email-address"
                 editable={!loading}
+                accessibilityLabel="Email address"
+                accessibilityHint="Enter your email address"
               />
             </View>
 
@@ -79,10 +88,13 @@ export default function LoginScreen() {
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
                 editable={!loading}
+                accessibilityLabel="Password"
               />
               <TouchableOpacity
                 onPress={() => setShowPassword(!showPassword)}
                 style={styles.eyeIcon}
+                accessibilityRole="button"
+                accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
               >
                 <Ionicons
                   name={showPassword ? 'eye-outline' : 'eye-off-outline'}
@@ -96,6 +108,8 @@ export default function LoginScreen() {
               style={[styles.loginButton, loading && styles.disabledButton]}
               onPress={handleLogin}
               disabled={loading}
+              accessibilityRole="button"
+              accessibilityLabel="Sign in"
             >
               {loading ? (
                 <ActivityIndicator color="#fff" />

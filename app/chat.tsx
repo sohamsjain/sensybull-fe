@@ -16,6 +16,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import groqService, { ArticleContext, Message } from './services/groq';
+import { logger } from './utils/logger';
+import { sanitizeInput } from './utils/sanitize';
 
 interface ChatMessage extends Message {
     id: string;
@@ -75,10 +77,12 @@ export default function ChatScreen() {
         const text = messageText || inputText;
         if (!text.trim() || isLoading) return;
 
+        const sanitizedText = sanitizeInput(text.trim());
+
         const userMessage: ChatMessage = {
             id: Date.now().toString(),
             role: 'user',
-            content: text.trim(),
+            content: sanitizedText,
             timestamp: Date.now(),
         };
 
@@ -103,7 +107,7 @@ export default function ChatScreen() {
             // Add the new user message
             conversationHistory.push({
                 role: 'user',
-                content: text.trim(),
+                content: sanitizedText,
             });
 
             // Get AI response
@@ -126,7 +130,7 @@ export default function ChatScreen() {
                 scrollViewRef.current?.scrollToEnd({ animated: true });
             }, 100);
         } catch (error) {
-            console.error('Error sending message:', error);
+            logger.error('Error sending message:', error);
             const errorMessage: ChatMessage = {
                 id: (Date.now() + 1).toString(),
                 role: 'assistant',
@@ -157,7 +161,12 @@ export default function ChatScreen() {
             />
             {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                <TouchableOpacity
+                    onPress={() => router.back()}
+                    style={styles.backButton}
+                    accessibilityRole="button"
+                    accessibilityLabel="Go back"
+                >
                     <Ionicons name="arrow-back" size={24} color="#333" />
                 </TouchableOpacity>
                 <View style={styles.headerCenter}>
@@ -252,11 +261,15 @@ export default function ChatScreen() {
                                     scrollViewRef.current?.scrollToEnd({ animated: true });
                                 }, 100);
                             }}
+                            accessibilityLabel="Message input"
+                            accessibilityHint="Type your question here"
                         />
                         <TouchableOpacity
                             style={[styles.sendButton, (!inputText.trim() || isLoading) && styles.sendButtonDisabled]}
                             onPress={() => handleSendMessage()}
                             disabled={!inputText.trim() || isLoading}
+                            accessibilityRole="button"
+                            accessibilityLabel="Send message"
                         >
                             <Ionicons
                                 name="send"
